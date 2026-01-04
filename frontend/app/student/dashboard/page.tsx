@@ -12,7 +12,13 @@ import {
   User,
   GraduationCap,
   FileText,
-  UserCheck
+  UserCheck,
+  HelpCircle,
+  X,
+  CheckCircle2,
+  AlertCircle,
+  Brain,
+  Bell
 } from 'lucide-react';
 
 // API Configuration
@@ -43,6 +49,116 @@ export default function StudentDashboard() {
   const [isAskLoading, setIsAskLoading] = useState(false);
   const [contentCount, setContentCount] = useState<number | null>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  // ===== QUIZ STATE =====
+  interface QuizQuestion {
+    id: number;
+    topic: string;
+    question: string;
+    options: string[];
+    correctAnswer: number;
+  }
+
+  // Hardcoded quiz questions (same as teacher side)
+  const quizQuestions: QuizQuestion[] = [
+    {
+      id: 1,
+      topic: "Machine Learning",
+      question: "What is supervised learning?",
+      options: [
+        "Learning without any data",
+        "Learning from labeled training data",
+        "Learning from unlabeled data only",
+        "Learning without a computer"
+      ],
+      correctAnswer: 1
+    },
+    {
+      id: 2,
+      topic: "Data Structures",
+      question: "What is the time complexity of binary search?",
+      options: ["O(n)", "O(n²)", "O(log n)", "O(1)"],
+      correctAnswer: 2
+    },
+    {
+      id: 3,
+      topic: "Neural Networks",
+      question: "What is an activation function?",
+      options: [
+        "A function that turns off the network",
+        "A function that introduces non-linearity",
+        "A function that only works on images",
+        "A function that reduces learning rate"
+      ],
+      correctAnswer: 1
+    },
+    {
+      id: 4,
+      topic: "Algorithms",
+      question: "What does Big O notation measure?",
+      options: [
+        "The exact runtime in seconds",
+        "Memory usage only",
+        "Algorithm efficiency as input grows",
+        "Code readability"
+      ],
+      correctAnswer: 2
+    },
+    {
+      id: 5,
+      topic: "Databases",
+      question: "What is database normalization?",
+      options: [
+        "Making database faster",
+        "Organizing data to reduce redundancy",
+        "Encrypting all data",
+        "Backing up the database"
+      ],
+      correctAnswer: 1
+    }
+  ];
+
+  // Quiz popup state
+  const [showQuizPopup, setShowQuizPopup] = useState(false);
+  const [currentQuizIndex, setCurrentQuizIndex] = useState(0);
+  const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [quizNotification, setQuizNotification] = useState(true); // Show notification by default for demo
+
+  const currentQuestion = quizQuestions[currentQuizIndex];
+
+  const triggerQuiz = () => {
+    setShowQuizPopup(true);
+    setSelectedAnswer(null);
+    setHasSubmitted(false);
+    setQuizNotification(false);
+  };
+
+  const submitQuizAnswer = () => {
+    if (selectedAnswer !== null) {
+      setHasSubmitted(true);
+    }
+  };
+
+  const nextQuestion = () => {
+    if (currentQuizIndex < quizQuestions.length - 1) {
+      setCurrentQuizIndex(currentQuizIndex + 1);
+      setSelectedAnswer(null);
+      setHasSubmitted(false);
+    } else {
+      // All questions done
+      setShowQuizPopup(false);
+      setCurrentQuizIndex(0);
+      setSelectedAnswer(null);
+      setHasSubmitted(false);
+    }
+  };
+
+  const closeQuiz = () => {
+    setShowQuizPopup(false);
+    setSelectedAnswer(null);
+    setHasSubmitted(false);
+  };
 
   useEffect(() => {
     fetchStats();
@@ -222,6 +338,20 @@ export default function StudentDashboard() {
             <UserCheck size={16} />
             Attendance
           </Link>
+          {/* Demo Quiz Button */}
+          <button
+            onClick={triggerQuiz}
+            className="relative flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium"
+          >
+            <Brain size={16} />
+            Demo Quiz
+            {quizNotification && (
+              <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-4 w-4 bg-red-500 text-[10px] items-center justify-center">!</span>
+              </span>
+            )}
+          </button>
           <div className="flex items-center gap-2 bg-gray-700/50 px-3 py-1.5 rounded-lg">
             <FileText size={14} className="text-emerald-400" />
             <span className="text-sm">{contentCount ?? 0} content chunks</span>
@@ -379,6 +509,155 @@ export default function StudentDashboard() {
           </div>
         </div>
       </main>
+
+      {/* Quiz Popup Modal */}
+      {showQuizPopup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-gray-900 rounded-2xl border border-indigo-500/50 shadow-2xl shadow-indigo-500/20 w-full max-w-2xl mx-4 overflow-hidden animate-in zoom-in-95 duration-300">
+            {/* Header */}
+            <div className="bg-gradient-to-r from-indigo-600/30 to-purple-600/30 px-6 py-4 border-b border-gray-700 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2 bg-indigo-500/20 rounded-lg">
+                  <Brain size={22} className="text-indigo-400" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-lg flex items-center gap-2">
+                    Understanding Check
+                    <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 text-[10px] font-medium rounded-full border border-purple-500/30">
+                      AI Generated
+                    </span>
+                  </h3>
+                  <p className="text-sm text-gray-400">Question {currentQuizIndex + 1} of {quizQuestions.length}</p>
+                </div>
+              </div>
+              <button
+                onClick={closeQuiz}
+                className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+              >
+                <X size={20} className="text-gray-400" />
+              </button>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="w-full bg-gray-800 h-1">
+              <div
+                className="bg-gradient-to-r from-indigo-500 to-purple-500 h-full transition-all duration-500"
+                style={{ width: `${((currentQuizIndex + 1) / quizQuestions.length) * 100}%` }}
+              />
+            </div>
+
+            {/* Question Content */}
+            <div className="p-6">
+              {/* Topic Badge */}
+              <div className="mb-4">
+                <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${currentQuestion.topic === 'Machine Learning' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
+                  currentQuestion.topic === 'Data Structures' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                    currentQuestion.topic === 'Neural Networks' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' :
+                      currentQuestion.topic === 'Algorithms' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' :
+                        'bg-pink-500/20 text-pink-400 border border-pink-500/30'
+                  }`}>
+                  {currentQuestion.topic}
+                </span>
+              </div>
+
+              {/* Question */}
+              <h4 className="text-xl font-semibold text-white mb-6">{currentQuestion.question}</h4>
+
+              {/* Answer Options */}
+              <div className="space-y-3">
+                {currentQuestion.options.map((option, idx) => {
+                  const isSelected = selectedAnswer === idx;
+                  const isCorrect = idx === currentQuestion.correctAnswer;
+                  const showResult = hasSubmitted;
+
+                  let optionClass = 'bg-gray-800 border-gray-700 hover:border-indigo-500/50 hover:bg-gray-700/50';
+
+                  if (isSelected && !showResult) {
+                    optionClass = 'bg-indigo-500/20 border-indigo-500 ring-2 ring-indigo-500/30';
+                  } else if (showResult && isCorrect) {
+                    optionClass = 'bg-emerald-500/20 border-emerald-500';
+                  } else if (showResult && isSelected && !isCorrect) {
+                    optionClass = 'bg-red-500/20 border-red-500';
+                  }
+
+                  return (
+                    <button
+                      key={idx}
+                      onClick={() => !hasSubmitted && setSelectedAnswer(idx)}
+                      disabled={hasSubmitted}
+                      className={`w-full text-left px-4 py-3 rounded-xl border transition-all flex items-center gap-3 ${optionClass} ${hasSubmitted ? 'cursor-default' : 'cursor-pointer'}`}
+                    >
+                      <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${showResult && isCorrect ? 'bg-emerald-500 text-white' :
+                        showResult && isSelected && !isCorrect ? 'bg-red-500 text-white' :
+                          isSelected ? 'bg-indigo-500 text-white' :
+                            'bg-gray-700 text-gray-300'
+                        }`}>
+                        {showResult && isCorrect ? <CheckCircle2 size={16} /> :
+                          showResult && isSelected && !isCorrect ? <X size={16} /> :
+                            String.fromCharCode(65 + idx)}
+                      </span>
+                      <span className={`flex-1 ${showResult && isCorrect ? 'text-emerald-400 font-medium' : 'text-gray-200'}`}>
+                        {option}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Feedback Message */}
+              {hasSubmitted && (
+                <div className={`mt-6 p-4 rounded-xl flex items-start gap-3 animate-in slide-in-from-bottom-2 duration-300 ${selectedAnswer === currentQuestion.correctAnswer
+                  ? 'bg-emerald-500/10 border border-emerald-500/30'
+                  : 'bg-red-500/10 border border-red-500/30'
+                  }`}>
+                  {selectedAnswer === currentQuestion.correctAnswer ? (
+                    <>
+                      <CheckCircle2 size={20} className="text-emerald-400 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold text-emerald-400">Correct!</p>
+                        <p className="text-sm text-gray-400">Great job! You understand this concept well.</p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle size={20} className="text-red-400 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="font-semibold text-red-400">Not quite right</p>
+                        <p className="text-sm text-gray-400">
+                          The correct answer is: <strong className="text-white">{currentQuestion.options[currentQuestion.correctAnswer]}</strong>
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Footer Actions */}
+            <div className="px-6 py-4 border-t border-gray-700 bg-gray-800/50 flex justify-end gap-3">
+              {!hasSubmitted ? (
+                <button
+                  onClick={submitQuizAnswer}
+                  disabled={selectedAnswer === null}
+                  className={`px-6 py-2.5 rounded-lg font-medium transition-all flex items-center gap-2 ${selectedAnswer !== null
+                    ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                    : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                    }`}
+                >
+                  Submit Answer
+                </button>
+              ) : (
+                <button
+                  onClick={nextQuestion}
+                  className="px-6 py-2.5 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-all flex items-center gap-2"
+                >
+                  {currentQuizIndex < quizQuestions.length - 1 ? 'Next Question' : 'Finish Quiz'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
