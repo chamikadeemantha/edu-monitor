@@ -1,31 +1,61 @@
 """
 LLM Service for Ollama Integration
 Provides streaming text generation and chat completion via local Ollama instance.
+Gracefully handles cases when Ollama is not installed or running.
 """
 import requests
 import json
+import logging
 from typing import Generator, List, Dict, Optional
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 OLLAMA_BASE_URL = "http://localhost:11434"
 DEFAULT_MODEL = "llama3-it"
 
+# Global flag to track Ollama availability (reduces repeated connection attempts)
+_ollama_available = None
+
 
 def check_ollama_connection() -> bool:
     """Check if Ollama is running and accessible."""
+    global _ollama_available
     try:
-        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
-        return response.status_code == 200
-    except requests.exceptions.RequestException:
+        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=3)
+        _ollama_available = response.status_code == 200
+        if _ollama_available:
+            logger.info("✅ Ollama LLM is connected and available")
+        return _ollama_available
+    except requests.exceptions.ConnectionError:
+        _ollama_available = False
+        logger.warning("⚠️ Ollama is not running. LLM features will be disabled. To enable, install Ollama from https://ollama.com and run: ollama run llama3-it")
         return False
+    except requests.exceptions.RequestException as e:
+        _ollama_available = False
+        logger.warning(f"⚠️ Cannot connect to Ollama: {e}. LLM features disabled.")
+        return False
+
+
+def is_ollama_available() -> bool:
+    """Quick check if Ollama was previously found to be available."""
+    global _ollama_available
+    if _ollama_available is None:
+        return check_ollama_connection()
+    return _ollama_available
 
 
 def get_available_models() -> List[str]:
     """Get list of available models in Ollama."""
+    if not is_ollama_available():
+        return []
     try:
-        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5)
+        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=3)
         if response.status_code == 200:
             data = response.json()
-            return [model["name"] for model in data.get("models", [])]
+            models = [model["name"] for model in data.get("models", [])]
+            logger.info(f"Available Ollama models: {models}")
+            return models
         return []
     except requests.exceptions.RequestException:
         return []
@@ -41,7 +71,12 @@ def generate_streaming(
     """
     Generate text with streaming response from Ollama.
     Yields text chunks as they arrive.
+    Returns a graceful error message if Ollama is not available.
     """
+    if not is_ollama_available():
+        yield "[Ollama LLM is not available. Please install Ollama and run: ollama run llama3-it]"
+        return
+
     url = f"{OLLAMA_BASE_URL}/api/generate"
     
     payload = {
@@ -70,7 +105,14 @@ def generate_streaming(
                             break
                     except json.JSONDecodeError:
                         continue
+    except requests.exceptions.ConnectionError:
+        logger.warning("Lost connection to Ollama during generation")
+        yield "[Connection to Ollama lost. Please check if it's still running.]"
+    except requests.exceptions.Timeout:
+        logger.warning("Ollama request timed out")
+        yield "[Request timed out. The model may be loading or overloaded.]"
     except requests.exceptions.RequestException as e:
+        logger.error(f"Ollama request error: {e}")
         yield f"[Error connecting to Ollama: {str(e)}]"
 
 
@@ -83,9 +125,20 @@ def generate_complete(
 ) -> str:
     """
     Generate text and return complete response (non-streaming).
+    Returns empty string if Ollama is not available.
     """
+    if not is_ollama_available():
+        logger.info("Skipping LLM generation - Ollama not available")
+        return ""
+    
     chunks = list(generate_streaming(prompt, model, system_prompt, temperature, max_tokens))
-    return "".join(chunks)
+    result = "".join(chunks)
+    
+    # Check if result is an error message
+    if result.startswith("[") and result.endswith("]"):
+        return ""
+    
+    return result
 
 
 def chat_streaming(
@@ -97,6 +150,10 @@ def chat_streaming(
     Chat completion with streaming response.
     Messages format: [{"role": "user"|"assistant"|"system", "content": "..."}]
     """
+    if not is_ollama_available():
+        yield "[Ollama LLM is not available. Please install and run Ollama.]"
+        return
+
     url = f"{OLLAMA_BASE_URL}/api/chat"
     
     payload = {
@@ -122,6 +179,7 @@ def chat_streaming(
                     except json.JSONDecodeError:
                         continue
     except requests.exceptions.RequestException as e:
+        logger.error(f"Ollama chat error: {e}")
         yield f"[Error connecting to Ollama: {str(e)}]"
 
 
@@ -171,17 +229,36 @@ CLEANED CONTENT:"""
 
 def generate_summary(context: str, model: str = DEFAULT_MODEL) -> Generator[str, None, None]:
     """Generate a streaming summary of lecture content."""
+    if not is_ollama_available():
+        yield "[Summary generation requires Ollama LLM. Please install and run Ollama.]"
+        return
     prompt = SUMMARY_PROMPT_TEMPLATE.format(context=context)
     return generate_streaming(prompt, model, SUMMARY_SYSTEM_PROMPT, temperature=0.5)
 
 
 def answer_question(context: str, question: str, model: str = DEFAULT_MODEL) -> Generator[str, None, None]:
     """Answer a question based on lecture content with streaming response."""
+    if not is_ollama_available():
+        yield "[Q&A requires Ollama LLM. Please install and run Ollama to use this feature.]"
+        return
     prompt = QA_PROMPT_TEMPLATE.format(context=context, question=question)
     return generate_streaming(prompt, model, QA_SYSTEM_PROMPT, temperature=0.3)
 
 
 def filter_transcript(raw_transcript: str, model: str = DEFAULT_MODEL) -> str:
     """Filter raw transcript to extract meaningful content (non-streaming for processing)."""
+    if not is_ollama_available():
+        # Return empty to fall back to regex-based filtering
+        logger.info("LLM not available for transcript filtering, using regex fallback")
+        return ""
     prompt = FILTER_PROMPT_TEMPLATE.format(transcript=raw_transcript)
     return generate_complete(prompt, model, FILTER_SYSTEM_PROMPT, temperature=0.2, max_tokens=1024)
+
+
+# Log initial Ollama status at module load
+def _init_check():
+    """Check Ollama availability on module load."""
+    logger.info("Checking Ollama LLM availability...")
+    check_ollama_connection()
+
+# Don't block on startup - check lazily
