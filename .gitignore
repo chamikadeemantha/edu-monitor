@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 venv/
 *.pkl
+!backend/modules/engagement/models/engagement_model.pkl
 .pytest_cache/
 
 # Node.js
