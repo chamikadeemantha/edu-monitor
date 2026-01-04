@@ -16,6 +16,7 @@
     "@mediapipe/pose": "^0.5.164",
     "@mediapipe/drawing_utils": "^0.5.164",
     "@mediapipe/camera_utils": "^0.5.164"
+    "recharts": "^3.6.0"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
