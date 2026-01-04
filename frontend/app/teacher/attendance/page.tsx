@@ -157,254 +157,266 @@ export default function AttendancePage() {
   }, [session, detail]);
 
   return (
-    <div className="min-h-screen bg-gray-900 p-8 text-white">
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold">Student Attendance</h1>
-        <p className="text-gray-400">Create session → generate PIN → watch live check-ins.</p>
-      </div>
-
-      {msg && (
-        <div className="mb-4 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-red-200">
-          {msg}
+    <div className="flex flex-col h-full bg-gray-900 text-white overflow-hidden">
+      <header className="h-16 bg-gray-800/50 backdrop-blur border-b border-gray-700 flex items-center justify-between px-8 sticky top-0 z-10 shrink-0">
+        <h2 className="text-lg font-semibold text-gray-200">
+          Student Attendance
+        </h2>
+        <div className="flex items-center gap-4">
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+          <span className="text-sm text-emerald-400">System Online</span>
         </div>
-      )}
+      </header>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* Session creator */}
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <h2 className="mb-4 text-lg font-semibold">Lecture Setup</h2>
+      <main className="p-8 flex-1 overflow-auto">
+        <div className="mb-6 gap-6">
+          <h1 className="text-2xl font-bold">Student Attendance</h1>
+          <p className="text-gray-400">Create session → generate PIN → watch live check-ins.</p>
+        </div>
 
-          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <label className="text-sm text-gray-300">
-              Module Code
-              <select
-                className="mt-1 w-full rounded-lg bg-gray-900 border border-gray-700 p-2 text-white outline-none"
-                value={moduleCode}
-                onChange={(e) => setModuleCode(e.target.value)}
-              >
-                {MODULES.map((m) => (
-                  <option key={m.code} value={m.code} className="bg-gray-900 text-white">
-                    {m.code}
-                  </option>
-                ))}
-              </select>
-            </label>
+        {msg && (
+          <div className="mb-4 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-red-200">
+            {msg}
+          </div>
+        )}
 
-            <label className="text-sm text-gray-300">
-              Module Name (auto)
-              <input
-                className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                value={moduleName}
-                readOnly
-              />
-            </label>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          {/* Session creator */}
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <h2 className="mb-4 text-lg font-semibold">Lecture Setup</h2>
 
-            <label className="text-sm text-gray-300">
-              Year
-              <input
-                className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                value={year}
-                onChange={(e) => setYear(e.target.value)}
-              />
-            </label>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <label className="text-sm text-gray-300">
+                Module Code
+                <select
+                  className="mt-1 w-full rounded-lg bg-gray-900 border border-gray-700 p-2 text-white outline-none"
+                  value={moduleCode}
+                  onChange={(e) => setModuleCode(e.target.value)}
+                >
+                  {MODULES.map((m) => (
+                    <option key={m.code} value={m.code} className="bg-gray-900 text-white">
+                      {m.code}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-            <label className="text-sm text-gray-300">
-              Faculty
-              <input
-                className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                value={faculty}
-                onChange={(e) => setFaculty(e.target.value)}
-              />
-            </label>
+              <label className="text-sm text-gray-300">
+                Module Name (auto)
+                <input
+                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
+                  value={moduleName}
+                  readOnly
+                />
+              </label>
 
-            <label className="text-sm text-gray-300">
-              Batch
-              <input
-                className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                value={batch}
-                onChange={(e) => setBatch(e.target.value)}
-              />
-            </label>
+              <label className="text-sm text-gray-300">
+                Year
+                <input
+                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
+                  value={year}
+                  onChange={(e) => setYear(e.target.value)}
+                />
+              </label>
 
-            <label className="text-sm text-gray-300">
-              Location
-              <input
-                className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                value={location}
-                onChange={(e) => setLocation(e.target.value)}
-              />
-            </label>
+              <label className="text-sm text-gray-300">
+                Faculty
+                <input
+                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
+                  value={faculty}
+                  onChange={(e) => setFaculty(e.target.value)}
+                />
+              </label>
 
-            <label className="text-sm text-gray-300">
-              Start Time
-              <input
-                type="datetime-local"
-                className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-              />
-            </label>
+              <label className="text-sm text-gray-300">
+                Batch
+                <input
+                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
+                  value={batch}
+                  onChange={(e) => setBatch(e.target.value)}
+                />
+              </label>
 
-            <label className="text-sm text-gray-300">
-              End Time
-              <input
-                type="datetime-local"
-                className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
-              />
-            </label>
+              <label className="text-sm text-gray-300">
+                Location
+                <input
+                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
+                  value={location}
+                  onChange={(e) => setLocation(e.target.value)}
+                />
+              </label>
 
-            <label className="text-sm text-gray-300">
-              Hours
-              <input
-                type="number"
-                step="0.5"
-                className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                value={hours}
-                onChange={(e) => setHours(Number(e.target.value))}
-              />
-            </label>
+              <label className="text-sm text-gray-300">
+                Start Time
+                <input
+                  type="datetime-local"
+                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                />
+              </label>
 
-            <label className="text-sm text-gray-300">
-              Student Count (max check-ins)
-              <input
-                type="number"
-                className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                value={maxStudents}
-                onChange={(e) => setMaxStudents(Number(e.target.value))}
-              />
-            </label>
+              <label className="text-sm text-gray-300">
+                End Time
+                <input
+                  type="datetime-local"
+                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                />
+              </label>
 
-            <label className="text-sm text-gray-300">
-              PIN Expiry (minutes)
-              <input
-                type="number"
-                className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                value={expiryMinutes}
-                onChange={(e) => setExpiryMinutes(Number(e.target.value))}
-              />
-            </label>
+              <label className="text-sm text-gray-300">
+                Hours
+                <input
+                  type="number"
+                  step="0.5"
+                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
+                  value={hours}
+                  onChange={(e) => setHours(Number(e.target.value))}
+                />
+              </label>
 
-            <label className="text-sm text-gray-300">
-              PIN Regenerate Limit
-              <input
-                type="number"
-                className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                value={regenLimit}
-                onChange={(e) => setRegenLimit(Number(e.target.value))}
-              />
-            </label>
+              <label className="text-sm text-gray-300">
+                Student Count (max check-ins)
+                <input
+                  type="number"
+                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
+                  value={maxStudents}
+                  onChange={(e) => setMaxStudents(Number(e.target.value))}
+                />
+              </label>
+
+              <label className="text-sm text-gray-300">
+                PIN Expiry (minutes)
+                <input
+                  type="number"
+                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
+                  value={expiryMinutes}
+                  onChange={(e) => setExpiryMinutes(Number(e.target.value))}
+                />
+              </label>
+
+              <label className="text-sm text-gray-300">
+                PIN Regenerate Limit
+                <input
+                  type="number"
+                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
+                  value={regenLimit}
+                  onChange={(e) => setRegenLimit(Number(e.target.value))}
+                />
+              </label>
+            </div>
+
+            <button
+              onClick={createSession}
+              disabled={loading}
+              className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-3 font-semibold hover:bg-blue-500 disabled:opacity-60"
+            >
+              {loading ? "Generating..." : "Generate PIN"}
+            </button>
           </div>
 
-          <button
-            onClick={createSession}
-            disabled={loading}
-            className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-3 font-semibold hover:bg-blue-500 disabled:opacity-60"
-          >
-            {loading ? "Generating..." : "Generate PIN"}
-          </button>
-        </div>
+          {/* Live Session */}
+          <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
+            <h2 className="mb-4 text-lg font-semibold">Live Session</h2>
 
-        {/* Live Session */}
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-          <h2 className="mb-4 text-lg font-semibold">Live Session</h2>
+            {!session ? (
+              <div className="text-gray-400">No active session yet.</div>
+            ) : (
+              <div className="space-y-4">
+                <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="text-gray-300 text-sm">PIN</div>
+                      <div className="text-4xl font-bold tracking-widest">{session.pin}</div>
+                      <div className="mt-1 text-sm text-gray-400">
+                        Expires in: <span className="text-white">{expiresIn ?? "-"}s</span>
+                      </div>
+                    </div>
 
-          {!session ? (
-            <div className="text-gray-400">No active session yet.</div>
-          ) : (
-            <div className="space-y-4">
-              <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-gray-300 text-sm">PIN</div>
-                    <div className="text-4xl font-bold tracking-widest">{session.pin}</div>
-                    <div className="mt-1 text-sm text-gray-400">
-                      Expires in: <span className="text-white">{expiresIn ?? "-"}s</span>
+                    <div className="text-right">
+                      <div className="text-gray-300 text-sm">Remaining Slots</div>
+                      <div className="text-3xl font-bold">
+                        {detail?.remaining_slots ?? session.remaining_slots}
+                      </div>
+                      <div className="mt-1 text-sm text-gray-400">
+                        Regen left: <span className="text-white">{session.regen_left}</span>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="text-right">
-                    <div className="text-gray-300 text-sm">Remaining Slots</div>
-                    <div className="text-3xl font-bold">
-                      {detail?.remaining_slots ?? session.remaining_slots}
-                    </div>
-                    <div className="mt-1 text-sm text-gray-400">
-                      Regen left: <span className="text-white">{session.regen_left}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <button
-                  onClick={regeneratePin}
-                  className="mt-4 w-full rounded-xl bg-emerald-600 px-4 py-2 font-semibold hover:bg-emerald-500"
-                >
-                  Regenerate PIN
-                </button>
-              </div>
-
-              <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-                <div className="mb-3 flex items-center justify-between">
-                  <div className="font-semibold">
-                    Attendance ({detail?.attendance_count ?? 0})
-                  </div>
                   <button
-                    onClick={() => loadDetail()}
-                    className="rounded-lg bg-white/10 px-3 py-1 text-sm hover:bg-white/15"
+                    onClick={regeneratePin}
+                    className="mt-4 w-full rounded-xl bg-emerald-600 px-4 py-2 font-semibold hover:bg-emerald-500"
                   >
-                    Refresh
+                    Regenerate PIN
                   </button>
                 </div>
 
-                <div className="max-h-[360px] overflow-auto">
-                  <table className="w-full text-left text-sm">
-                    <thead className="text-gray-300">
-                      <tr className="border-b border-white/10">
-                        <th className="py-2">Face</th>
-                        <th className="py-2">Student ID</th>
-                        <th className="py-2">Name</th>
-                        <th className="py-2">Marked At</th>
-                      </tr>
-                    </thead>
-                    <tbody className="text-gray-200">
-                      {(detail?.attendance ?? []).map((a) => (
-                        <tr key={a.student_id} className="border-b border-white/5">
-                          <td className="py-2">
-                            {a.selfie_base64 ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img
-                                alt="selfie"
-                                className="h-10 w-10 rounded-full object-cover"
-                                src={a.selfie_base64}
-                              />
-                            ) : (
-                              <div className="h-10 w-10 rounded-full bg-white/10 flex items-center justify-center">
-                                🙂
-                              </div>
-                            )}
-                          </td>
-                          <td className="py-2">{a.student_id}</td>
-                          <td className="py-2">{a.student_name ?? "-"}</td>
-                          <td className="py-2">{new Date(a.marked_at).toLocaleString()}</td>
-                        </tr>
-                      ))}
+                <div className="rounded-xl border border-white/10 bg-black/20 p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <div className="font-semibold">
+                      Attendance ({detail?.attendance_count ?? 0})
+                    </div>
+                    <button
+                      onClick={() => loadDetail()}
+                      className="rounded-lg bg-white/10 px-3 py-1 text-sm hover:bg-white/15"
+                    >
+                      Refresh
+                    </button>
+                  </div>
 
-                      {(detail?.attendance ?? []).length === 0 && (
-                        <tr>
-                          <td className="py-4 text-gray-400" colSpan={4}>
-                            No check-ins yet.
-                          </td>
+                  <div className="max-h-[360px] overflow-auto">
+                    <table className="w-full text-left text-sm">
+                      <thead className="text-gray-300">
+                        <tr className="border-b border-white/10">
+                          <th className="py-2">Face</th>
+                          <th className="py-2">Student ID</th>
+                          <th className="py-2">Name</th>
+                          <th className="py-2">Marked At</th>
                         </tr>
-                      )}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody className="text-gray-200">
+                        {(detail?.attendance ?? []).map((a) => (
+                          <tr key={a.student_id} className="border-b border-white/5">
+                            <td className="py-2">
+                              {a.selfie_base64 ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img
+                                  alt="selfie"
+                                  className="h-10 w-10 rounded-full object-cover"
+                                  src={a.selfie_base64}
+                                />
+                              ) : (
+                                <div className="h-10 w-10 rounded-full bg-white/10 flex items-center justify-center">
+                                  🙂
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-2">{a.student_id}</td>
+                            <td className="py-2">{a.student_name ?? "-"}</td>
+                            <td className="py-2">{new Date(a.marked_at).toLocaleString()}</td>
+                          </tr>
+                        ))}
+
+                        {(detail?.attendance ?? []).length === 0 && (
+                          <tr>
+                            <td className="py-4 text-gray-400" colSpan={4}>
+                              No check-ins yet.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
-              </div>
 
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

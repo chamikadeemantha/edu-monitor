@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 venv/
 *.pkl
+!backend/modules/engagement/models/engagement_model.pkl
 .pytest_cache/
 
 # Node.js
@@ -25,3 +26,5 @@ backend/modules/engagement/data/annotation_helper.mp4
 results.txt
 training_output.txt
 *.log
+
+backend/modules/performance/vector_db
