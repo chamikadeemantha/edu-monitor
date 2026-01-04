@@ -233,7 +233,7 @@ def generate_summary(context: str, model: str = DEFAULT_MODEL) -> Generator[str,
         yield "[Summary generation requires Ollama LLM. Please install and run Ollama.]"
         return
     prompt = SUMMARY_PROMPT_TEMPLATE.format(context=context)
-    return generate_streaming(prompt, model, SUMMARY_SYSTEM_PROMPT, temperature=0.5)
+    yield from generate_streaming(prompt, model, SUMMARY_SYSTEM_PROMPT, temperature=0.5)
 
 
 def answer_question(context: str, question: str, model: str = DEFAULT_MODEL) -> Generator[str, None, None]:
@@ -242,7 +242,7 @@ def answer_question(context: str, question: str, model: str = DEFAULT_MODEL) -> 
         yield "[Q&A requires Ollama LLM. Please install and run Ollama to use this feature.]"
         return
     prompt = QA_PROMPT_TEMPLATE.format(context=context, question=question)
-    return generate_streaming(prompt, model, QA_SYSTEM_PROMPT, temperature=0.3)
+    yield from generate_streaming(prompt, model, QA_SYSTEM_PROMPT, temperature=0.3)
 
 
 def filter_transcript(raw_transcript: str, model: str = DEFAULT_MODEL) -> str:
