@@ -137,9 +137,12 @@ export default function TeacherDashboard() {
               <button
                 key={tab.id}
                 onClick={() => {
-                  // ✅ Only Attendance navigates to your page.tsx route
                   if (tab.id === "attendance") {
                     router.push("/teacher/attendance");
+                    return;
+                  }
+                  if (tab.id === "performance") {
+                    router.push("/teacher/teacher_behavior");
                     return;
                   }
                   setActiveTab(tab.id);

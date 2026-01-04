@@ -44,6 +44,14 @@ hip_ref_global = None
 torso_ref_global = None
 
 # --- YOUTUBE HELPER ---
+class MyLogger:
+    def debug(self, msg):
+        pass
+    def warning(self, msg):
+        pass
+    def error(self, msg):
+        print(msg)
+
 def get_video_source(url):
     if not url:
         return 0  # Webcam
@@ -51,7 +59,13 @@ def get_video_source(url):
         print("yt_dlp not installed; cannot use YouTube URL. Falling back to webcam.")
         return 0
     try:
-        ydl_opts = {'format': 'best[ext=mp4]', 'quiet': True}
+        # 'noprogress': True is critical to avoid WinError 6 (invalid handle) when running in background/no-console
+        ydl_opts = {
+            'format': 'best[ext=mp4]', 
+            'quiet': True, 
+            'noprogress': True,
+            'logger': MyLogger()
+        }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
             # Prefer top-level 'url' if present (some yt-dlp extracts set it), otherwise look through formats
