@@ -2,18 +2,21 @@ from fastapi import FastAPI
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-import os
 
 # Import the refactored inference generator
 from modules.engagement.run_inference import run_inference, LATEST_STATS, STATS_HISTORY, LATEST_GROUP_STATS, set_group_visualization
 from pydantic import BaseModel
+
+
+# Attendance router
+from modules.attendance.routes import router as attendance_router
 
 app = FastAPI()
 
 # Enable CORS for Next.js frontend
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # Explicit origin for Next.js to avoid CORS credential issues
+    allow_origins=["*"],  # ok for dev
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -65,10 +68,12 @@ def set_zone_settings(req: ZoneSettingsRequest):
 
 @app.get("/video_feed")
 def video_feed():
-    # Stream the generator response
-    return StreamingResponse(run_inference(), 
-                             media_type="multipart/x-mixed-replace; boundary=frame")
+    return StreamingResponse(
+        run_inference(),
+        media_type="multipart/x-mixed-replace; boundary=frame"
+    )
+
+app.include_router(attendance_router, prefix="/api")
 
 if __name__ == "__main__":
-    # Run on localhost:8000
     uvicorn.run(app, host="0.0.0.0", port=8000)
