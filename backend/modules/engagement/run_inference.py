@@ -18,7 +18,7 @@ FPS = 25
 WINDOW_SEC = 3
 WINDOW_FRAMES = FPS * WINDOW_SEC
 SKIP_POSE_FRAMES = 15
-FRAME_STRIDE = 2  
+FRAME_STRIDE = 3  
 
 # Global stats shared with API
 LATEST_STATS = {"total": 0, "engaged": 0, "active": 0}
@@ -169,6 +169,41 @@ def run_inference(video_path=None, show_video=False):
         print(f"Error opening video {video_path}", flush=True)
         return
 
+    # --- Pre-load frames for Boomerang Loop (max 7s) ---
+    print("Buffering frames for boomerang loop...", flush=True)
+    frames_buffer = []
+    
+    while True:
+        ret, raw_frame = cap.read()
+        if not ret:
+            break
+            
+        # Stop buffering after 7 seconds
+        if cap.get(cv2.CAP_PROP_POS_MSEC) > 7000:
+            break
+            
+        # Resize immediately to store "ready" frames (saves memory/CPU)
+        h, w = raw_frame.shape[:2]
+        target_w = 1280
+        if w > target_w:
+            scale = target_w / w
+            new_h = int(h * scale)
+            raw_frame = cv2.resize(raw_frame, (target_w, new_h))
+            
+        frames_buffer.append(raw_frame)
+        
+    cap.release()
+    print(f"Buffered {len(frames_buffer)} frames for looping.", flush=True)
+    
+    if not frames_buffer:
+        print("Error: No frames loaded.")
+        return
+
+    # Boomerang state
+    buffer_idx = 0
+    direction = 1 # 1 for forward, -1 for backward
+    # ---------------------------------------------------
+
     history = defaultdict(lambda: deque(maxlen=WINDOW_FRAMES))
     # 4. Tracking Stability: Smooth predictions
     prediction_history = defaultdict(lambda: deque(maxlen=5)) 
@@ -186,30 +221,29 @@ def run_inference(video_path=None, show_video=False):
     
     frame_count = 0
     last_detections = []  # list of dicts: {x1,y1,x2,y2,color,text}
+    
+    t_start = time.time() # Start time for FPS calc
 
     print("Starting inference loop...")
 
     while True:
-        ret, frame = cap.read()
-        if not ret:
-            # Loop the video indefinitely
-            print("Video ended, restarting...", flush=True)
-            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-            continue
+        # Get frame from buffer
+        frame = frames_buffer[buffer_idx].copy() # Copy essential to avoid drawing on cached frame
+        
+        # Update index for next iteration (Boomerang Logic)
+        buffer_idx += direction
+        
+        # Bounce at ends
+        if buffer_idx >= len(frames_buffer):
+            buffer_idx = len(frames_buffer) - 2
+            direction = -1
+        elif buffer_idx < 0:
+            buffer_idx = 1
+            direction = 1
 
         frame_count += 1
-
-        if frame is None:
-            break
-
-        # Resize frame to width 1280 for better visibility and speed
-        h, w = frame.shape[:2]
-        target_w = 1280
-        if w > target_w:
-            scale = target_w / w
-            new_h = int(h * scale)
-            frame = cv2.resize(frame, (target_w, new_h))
-            h, w = frame.shape[:2]
+        
+        h, w = frame.shape[:2] # Get dimensions of the pre-sized frame
             
         # Define zone limits for every frame
         y_back_limit = h * ZONE_SPLITS["back"]
@@ -221,13 +255,13 @@ def run_inference(video_path=None, show_video=False):
             # Run YOLO tracking
             # FORCE GPU: device=0
             try:
-                # imgsz=1280 matches our resized frame width (1:1 pixel mapping) for best detail without full HD lag
-                # conf=0.10 very low to catch distant students
-                results = model.track(frame, device="cuda", classes=[0], verbose=False, persist=True, conf=0.10, imgsz=1280)
+                # REDUCED imgsz to 640 from 1280 for speed. 
+                # Conf=0.25 (standard) to reduce false positives if any.
+                results = model.track(frame, device="cuda", classes=[0], verbose=False, persist=True, conf=0.10, imgsz=960)
             except Exception as e:
                 # Fallback to CPU if GPU fails
                 print(f"Tracking error (trying CPU fallback): {e}")
-                results = model.track(frame, device="cpu", classes=[0], verbose=False, persist=True, conf=0.10, imgsz=1280)
+                results = model.track(frame, device="cpu", classes=[0], verbose=False, persist=True, conf=0.10, imgsz=960)
 
             frame_boxes = results[0].boxes
             last_detections = []
@@ -488,6 +522,13 @@ def run_inference(video_path=None, show_video=False):
         ret, buffer = cv2.imencode('.jpg', frame)
         if not ret:
             continue
+
+        # FPS Calculation
+        if frame_count % 10 == 0:
+            t_end = time.time()
+            fps = 10 / (t_end - t_start)
+            print(f"Inference FPS: {fps:.2f} (Stride={FRAME_STRIDE})", flush=True)
+            t_start = time.time()
             
         frame_bytes = buffer.tobytes()
         yield (b'--frame\r\n'
@@ -495,6 +536,7 @@ def run_inference(video_path=None, show_video=False):
 
     cap.release()
     cv2.destroyAllWindows()
+
 
 if __name__ == "__main__":
     # When run as script, show the video
