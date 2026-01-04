@@ -3,6 +3,8 @@ from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
+# Import performance module routes
+from modules.performance.routes import router as performance_router
 
 # Teacher behavior API
 try:
@@ -27,6 +29,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register routers
+app.include_router(performance_router)
 
 @app.get("/")
 def read_root():
@@ -117,3 +122,4 @@ app.include_router(attendance_router, prefix="/api")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+

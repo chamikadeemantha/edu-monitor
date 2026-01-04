@@ -25,3 +25,5 @@ backend/modules/engagement/data/annotation_helper.mp4
 results.txt
 training_output.txt
 *.log
+
+./backend/modules/performance/vector_db
