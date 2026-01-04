@@ -471,8 +471,14 @@ def run_inference(video_path=None, show_video=False):
             cv2.putText(frame, "MIDDLE ROW", (10, int(y_front_limit) - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
             cv2.putText(frame, "FRONT ROW", (10, h - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
 
-        # Draw Legend
-        cv2.putText(frame, "Status: ", (w - 250, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        # Draw Legend with Background
+        # Background Box (Semi-transparent)
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (w - 260, 5), (w - 10, 50), (0, 0, 0), -1) 
+        frame = cv2.addWeighted(overlay, 0.6, frame, 0.4, 0)
+
+        # Text and Indicators
+        cv2.putText(frame, "Status: ", (w - 250, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2) # Cyan for label
         cv2.circle(frame, (w - 160, 25), 6, (0, 255, 0), -1)
         cv2.putText(frame, "Engaged", (w - 145, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
         cv2.circle(frame, (w - 50, 25), 6, (0, 0, 255), -1)
@@ -527,7 +533,6 @@ def run_inference(video_path=None, show_video=False):
         if frame_count % 10 == 0:
             t_end = time.time()
             fps = 10 / (t_end - t_start)
-            print(f"Inference FPS: {fps:.2f} (Stride={FRAME_STRIDE})", flush=True)
             t_start = time.time()
             
         frame_bytes = buffer.tobytes()
