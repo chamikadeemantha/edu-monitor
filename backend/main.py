@@ -6,6 +6,8 @@ import os
 
 # Import the refactored inference generator
 from modules.engagement.run_inference import run_inference
+# Import performance module routes
+from modules.performance.routes import router as performance_router
 
 app = FastAPI()
 
@@ -17,6 +19,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Register routers
+app.include_router(performance_router)
 
 @app.get("/")
 def read_root():
@@ -31,3 +36,4 @@ def video_feed():
 if __name__ == "__main__":
     # Run on localhost:8000
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
