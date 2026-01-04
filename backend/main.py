@@ -1,3 +1,37 @@
+# Fix for ChromaDB requiring newer sqlite3
+import sys
+import os
+import ctypes
+
+# Fix for Protobuf conflict (MediaPipe vs others)
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+
+# Attempt to force-load the newer sqlite3.dll from specific paths
+# This trick helps when the OS loader insists on using the system python's sqlite3.dll
+try:
+    # Try the one we placed in venv/DLLs
+    ctypes.CDLL(r'c:\Users\chath\Desktop\Research\Code\venv\DLLs\sqlite3.dll')
+except Exception:
+    try:
+        # Fallback to CWD
+        ctypes.CDLL(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sqlite3.dll'))
+    except Exception:
+        pass
+
+try:
+    __import__('pysqlite3')
+    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+except ImportError:
+    pass
+
+# Fix for ChromaDB requiring newer sqlite3
+try:
+    __import__('pysqlite3')
+    import sys
+    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+except ImportError:
+    pass
+
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -11,8 +45,13 @@ try:
     from modules.teacher_behavior.api import router as teacher_behavior_router
 except Exception:
     teacher_behavior_router = None
+# teacher_behavior_router = None
 
 from modules.engagement.run_inference import run_inference, LATEST_STATS, STATS_HISTORY, LATEST_GROUP_STATS, set_group_visualization
+
+
+# def set_visual_style(style: str): pass
+# def set_zone_boundaries(back_split: float, front_split: float): pass
 from pydantic import BaseModel
 
 # Attendance router
@@ -49,6 +88,8 @@ except Exception as e:
     run_teacher_inference = None
     def get_latest_stats():
         return {"behavior": "Unavailable", "mobility": 0.0, "orientation": 0.0, "hand_speed": 0.0}
+
+
 
 from fastapi.responses import JSONResponse
 
@@ -113,6 +154,8 @@ def set_zone_settings(req: ZoneSettingsRequest):
 
 @app.get("/video_feed")
 def video_feed():
+    if run_inference is None:
+        return StreamingResponse(iter([b""]), media_type="multipart/x-mixed-replace; boundary=frame")
     return StreamingResponse(
         run_inference(),
         media_type="multipart/x-mixed-replace; boundary=frame"

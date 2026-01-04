@@ -145,6 +145,10 @@ export default function TeacherDashboard() {
                     router.push("/teacher/teacher_behavior");
                     return;
                   }
+                  if (tab.id === "student-perf") {
+                    router.push("/teacher/performance");
+                    return;
+                  }
                   setActiveTab(tab.id);
                 }}
                 className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${isActive
