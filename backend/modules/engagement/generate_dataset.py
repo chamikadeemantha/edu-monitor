@@ -26,45 +26,68 @@ OUTPUT_CSV = "data/labeled_dataset_new.csv"
 OUTPUT_VIDEO = "data/annotation_helper.mp4"
 
 def classify_frame_posture(pitch, pose_kpts):
-    # (Same Logic as before)
     head_down = 0
-    head_on_desk = 0
     lean_forward = 0
     writing_like = 0
 
+    # 2. Robust Pose/Pitch: conservative pitch threshold if pose is missing
     if pose_kpts is None:
         if pitch is not None and pitch > 25:
             head_down = 1
-        return head_down, head_on_desk, lean_forward, writing_like
+        return head_down, lean_forward, writing_like
 
     nose = pose_kpts.get("nose")
     ls = pose_kpts.get("l_shoulder")
     rs = pose_kpts.get("r_shoulder")
-    # Hips removed from requirement but kept in extraction if needed, 
-    # but strictly we use shoulders/wrists for writing.
-    
-    # Simple check
+    lh = pose_kpts.get("l_hip")
+    rh = pose_kpts.get("r_hip")
+    lw = pose_kpts.get("l_wrist")
+    rw = pose_kpts.get("r_wrist")
+
     if pitch is not None and pitch > 15:
         head_down = 1
 
-    if nose and ls and rs:
-        nose_y = nose[1]
-        ls_y = ls[1]; rs_y = rs[1]
-        shoulder_y = (ls_y + rs_y) / 2.0
-        
-        # Simple writing check
-        wrists_on_desk = False
-        lw = pose_kpts.get("l_wrist")
-        rw = pose_kpts.get("r_wrist")
-        for w_pt in [lw, rw]:
-            if w_pt is not None:
-                if w_pt[1] > shoulder_y: # Wrist below shoulder
-                     wrists_on_desk = True
+    # Check for critical body parts - require hips for advanced posture
+    if any(k is None for k in [nose, ls, rs, lh, rh]):
+        # Fallback to loose pitch check if we can't estimate torso
+        if pitch is not None and pitch > 20: 
+            head_down = 1
+        return head_down, lean_forward, writing_like
 
-        if (head_down) and wrists_on_desk:
-            writing_like = 1
+    # Coordinates
+    nose_x, nose_y = nose
+    ls_x, ls_y = ls
+    rs_x, rs_y = rs
+    lh_x, lh_y = lh
+    rh_x, rh_y = rh
 
-    return head_down, head_on_desk, lean_forward, writing_like
+    # Centers and Lengths
+    shoulder_x = (ls_x + rs_x) / 2.0
+    shoulder_y = (ls_y + rs_y) / 2.0
+    hip_y = (lh_y + rh_y) / 2.0
+    
+    torso_len = abs(hip_y - shoulder_y) + 1e-6
+    shoulder_width = abs(rs_x - ls_x) + 1e-6
+
+    # 2. Lean Forward Logic (Relative X)
+    # Check if nose deviates horizontally from shoulder center (relative to shoulder width)
+    # This implies leaning sideways or forward if seen from side angle
+    nose_offset_x = (nose_x - shoulder_x) / shoulder_width
+    if abs(nose_offset_x) > 0.5:
+        lean_forward = 1
+
+    # 1. Writing Logic
+    wrists_on_desk = False
+    for w_pt in [lw, rw]:
+        if w_pt is not None:
+            wy = w_pt[1]
+            if wy > shoulder_y:
+                wrists_on_desk = True
+    
+    if (head_down or lean_forward) and wrists_on_desk:
+        writing_like = 1
+
+    return head_down, lean_forward, writing_like
 
 def generate_synced_data(video_path=None):
     BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -180,15 +203,21 @@ def generate_synced_data(video_path=None):
                          pitch = estimate_pitch_bgr(cv2.resize(head_crop, None, fx=0.5, fy=0.5))
                     
                     # Store Features
-                    hd, hod, lf, wl = classify_frame_posture(pitch, pose_kpts)
+                    hd, lf, wl = classify_frame_posture(pitch, pose_kpts)
                     p_val = pitch if pitch is not None else 0.0 # simple fallback
-                    history[tid].append((p_val, hd, hod, lf, wl))
+                    history[tid].append((p_val, hd, lf, wl))
 
                     # 3. Add to Dataset (Every 10 frames to avoid bloat, same as before)
                     # Sync Logic: Use exactly the logic that writes the row
                     if len(history[tid]) >= 5 and frame_count % 10 == 0:
                         buffer = list(history[tid])
-                        df_buff = pd.DataFrame(buffer, columns=["p", "hd", "hod", "lf", "wl"])
+                        df_buff = pd.DataFrame(buffer, columns=["p", "hd", "lf", "wl"])
+                        
+                        # Calculate delta between consecutive frames (Match run_inference.py)
+                        df_buff["p_delta"] = df_buff["p"].diff().abs().fillna(0.0)
+                        p_delta_mean = df_buff["p_delta"].mean()
+                        p_delta_std = df_buff["p_delta"].std()
+                        if np.isnan(p_delta_std): p_delta_std = 0.0
                         
                         row = {
                             "frame": frame_count,
@@ -196,7 +225,10 @@ def generate_synced_data(video_path=None):
                             "student_id": tid,
                             "avg_pitch": df_buff["p"].mean(),
                             "ratio_head_down": df_buff["hd"].mean(),
+                            "ratio_lean_forward": df_buff["lf"].mean(),
                             "ratio_writing_like": df_buff["wl"].mean(),
+                            "pitch_delta_mean": p_delta_mean,
+                            "pitch_delta_std": p_delta_std,
                             "label_engaged": "" # To be labeled
                         }
                         dataset_rows.append(row)
@@ -213,12 +245,10 @@ def generate_synced_data(video_path=None):
         
         # Save CSV
         df = pd.DataFrame(dataset_rows)
-        # Fill missing cols with 0 for compatibility
-        for c in ["ratio_head_on_desk", "ratio_lean_forward", "pitch_delta_mean", "pitch_delta_std"]:
-            df[c] = 0.0
+        # removed zero-filling loop
             
         cols = ["frame", "time_sec", "student_id", 
-                "avg_pitch", "ratio_head_down", "ratio_head_on_desk", "ratio_lean_forward",
+                "avg_pitch", "ratio_head_down", "ratio_lean_forward",
                 "ratio_writing_like", "pitch_delta_mean", "pitch_delta_std", "label_engaged"]
         df = df[cols] if not df.empty else pd.DataFrame(columns=cols)
         
