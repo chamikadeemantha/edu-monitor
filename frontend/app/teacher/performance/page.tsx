@@ -784,251 +784,251 @@ export default function StudentPerformanceSection() {
                         </div>
                     </div>
 
-            {/* ===== CLASS QUIZ SECTION ===== */}
-            <div className="bg-gradient-to-r from-indigo-600/20 to-purple-600/20 border border-indigo-500/30 rounded-xl overflow-hidden">
-                <div className="p-4 border-b border-indigo-500/30 bg-gradient-to-r from-indigo-900/30 to-purple-900/30">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2.5 bg-indigo-500/20 rounded-xl">
-                                <Brain size={22} className="text-indigo-400" />
-                            </div>
-                            <div>
-                                <h3 className="font-bold text-white text-lg flex items-center gap-2">
-                                    AI-Generated Quiz
-                                    <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 text-xs font-medium rounded-full border border-purple-500/30">
-                                        <Sparkles size={10} className="inline mr-1" />
-                                        From Lecture Content
-                                    </span>
-                                </h3>
-                                <p className="text-sm text-gray-400">Questions auto-generated based on your uploaded slides and live transcription</p>
+                    {/* ===== CLASS QUIZ SECTION ===== */}
+                    <div className="bg-gray-800 border border-gray-700 rounded-xl overflow-hidden">
+                        <div className="p-4 border-b border-gray-700 bg-gray-900/50">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-3">
+                                    <div className="p-2.5 bg-blue-500/20 rounded-xl">
+                                        <Brain size={22} className="text-blue-400" />
+                                    </div>
+                                    <div>
+                                        <h3 className="font-bold text-white text-lg flex items-center gap-2">
+                                            AI-Generated Quiz
+                                            <span className="px-2 py-0.5 bg-gray-700 text-gray-300 text-xs font-medium rounded-full border border-gray-600">
+                                                <Sparkles size={10} className="inline mr-1" />
+                                                From Lecture Content
+                                            </span>
+                                        </h3>
+                                        <p className="text-sm text-gray-400">Questions auto-generated based on your uploaded slides and live transcription</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-3">
+                                    <button
+                                        onClick={() => setShowGenerateModal(true)}
+                                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-all"
+                                    >
+                                        <Wand2 size={18} />
+                                        Generate Quiz
+                                    </button>
+                                    <button
+                                        onClick={() => setShowAnalytics(!showAnalytics)}
+                                        className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${showAnalytics
+                                            ? 'bg-blue-600 text-white'
+                                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
+                                    >
+                                        <BarChart3 size={18} />
+                                        {showAnalytics ? 'Hide Analytics' : 'View Analytics'}
+                                    </button>
+                                </div>
                             </div>
                         </div>
-                        <div className="flex items-center gap-3">
-                            <button
-                                onClick={() => setShowGenerateModal(true)}
-                                className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg font-medium hover:from-indigo-700 hover:to-purple-700 transition-all shadow-lg shadow-indigo-500/25"
-                            >
-                                <Wand2 size={18} />
-                                Generate Quiz
-                            </button>
-                            <button
-                                onClick={() => setShowAnalytics(!showAnalytics)}
-                                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${showAnalytics
-                                    ? 'bg-indigo-600 text-white'
-                                    : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-                            >
-                                <BarChart3 size={18} />
-                                {showAnalytics ? 'Hide Analytics' : 'View Analytics'}
-                            </button>
-                        </div>
-                    </div>
-                </div>
 
-                <div className="p-6 space-y-6">
-                    {/* Quiz Questions Grid */}
-                    {quizQuestions.length === 0 ? (
-                        <div className="text-center py-12">
-                            <div className="w-16 h-16 bg-indigo-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <HelpCircle size={32} className="text-indigo-400" />
-                            </div>
-                            <h4 className="text-lg font-semibold text-white mb-2">No Quizzes Yet</h4>
-                            <p className="text-gray-400 mb-6">Generate AI-powered quizzes based on your lecture content</p>
-                            <button
-                                onClick={() => setShowGenerateModal(true)}
-                                className="inline-flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white rounded-lg font-medium hover:from-indigo-700 hover:to-purple-700 transition-all"
-                            >
-                                <Wand2 size={18} />
-                                Generate Your First Quiz
-                            </button>
-                        </div>
-                    ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            {quizQuestions.map((question) => (
-                                <div
-                                    key={question.id}
-                                    className={`bg-gray-800/80 rounded-xl border transition-all ${releasedQuizzes.includes(question.id)
-                                        ? 'border-emerald-500/50 shadow-lg shadow-emerald-500/10'
-                                        : 'border-gray-700 hover:border-indigo-500/50'
-                                        }`}
-                                >
-                                    <div className="p-4">
-                                        <div className="flex items-start justify-between mb-3">
-                                            <div className="flex items-center gap-2 flex-wrap">
-                                                <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${question.topic === 'Machine Learning' ? 'bg-blue-500/20 text-blue-400' :
-                                                    question.topic === 'Data Structures' ? 'bg-emerald-500/20 text-emerald-400' :
-                                                        question.topic === 'Neural Networks' ? 'bg-purple-500/20 text-purple-400' :
-                                                            question.topic === 'Algorithms' ? 'bg-orange-500/20 text-orange-400' :
-                                                                'bg-pink-500/20 text-pink-400'
-                                                    }`}>
-                                                    {question.topic}
-                                                </span>
-                                                <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${question.difficulty === 'Beginner' ? 'bg-green-500/20 text-green-400' :
-                                                    question.difficulty === 'Intermediate' ? 'bg-yellow-500/20 text-yellow-400' :
-                                                        'bg-red-500/20 text-red-400'
-                                                    }`}>
-                                                    {question.difficulty}
-                                                </span>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                {releasedQuizzes.includes(question.id) && (
-                                                    <span className="flex items-center gap-1 text-xs text-emerald-400">
-                                                        <CheckCheck size={14} />
-                                                        Released
-                                                    </span>
-                                                )}
-                                                <button
-                                                    onClick={() => removeQuiz(question.id)}
-                                                    className="p-1 hover:bg-red-500/20 rounded transition-colors group"
-                                                    title="Remove quiz"
-                                                >
-                                                    <X size={14} className="text-gray-500 group-hover:text-red-400" />
-                                                </button>
-                                            </div>
-                                        </div>
-
-                                        <h4 className="font-medium text-white mb-3 leading-snug">
-                                            {question.question}
-                                        </h4>
-
-                                        <div className="space-y-1.5 mb-4">
-                                            {question.options.map((option, idx) => (
-                                                <div
-                                                    key={idx}
-                                                    className={`text-xs px-3 py-1.5 rounded-lg ${idx === question.correctAnswer
-                                                        ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
-                                                        : 'bg-gray-700/50 text-gray-400'
-                                                        }`}
-                                                >
-                                                    {String.fromCharCode(65 + idx)}. {option}
-                                                </div>
-                                            ))}
-                                        </div>
-
-                                        <button
-                                            onClick={() => releaseQuiz(question.id)}
-                                            disabled={releasedQuizzes.includes(question.id)}
-                                            className={`w-full py-2 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${releasedQuizzes.includes(question.id)
-                                                ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                                                : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                        <div className="p-6 space-y-6">
+                            {/* Quiz Questions Grid */}
+                            {quizQuestions.length === 0 ? (
+                                <div className="text-center py-12">
+                                    <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                                        <HelpCircle size={32} className="text-blue-400" />
+                                    </div>
+                                    <h4 className="text-lg font-semibold text-white mb-2">No Quizzes Yet</h4>
+                                    <p className="text-gray-400 mb-6">Generate AI-powered quizzes based on your lecture content</p>
+                                    <button
+                                        onClick={() => setShowGenerateModal(true)}
+                                        className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-all"
+                                    >
+                                        <Wand2 size={18} />
+                                        Generate Your First Quiz
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    {quizQuestions.map((question) => (
+                                        <div
+                                            key={question.id}
+                                            className={`bg-gray-800/80 rounded-xl border transition-all ${releasedQuizzes.includes(question.id)
+                                                ? 'border-emerald-500/50 shadow-lg shadow-emerald-500/10'
+                                                : 'border-gray-700 hover:border-indigo-500/50'
                                                 }`}
                                         >
-                                            {releasedQuizzes.includes(question.id) ? (
-                                                <><CheckCircle2 size={16} />Released to Class</>
-                                            ) : (
-                                                <><PlayCircle size={16} />Release to Class</>
-                                            )}
-                                        </button>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
+                                            <div className="p-4">
+                                                <div className="flex items-start justify-between mb-3">
+                                                    <div className="flex items-center gap-2 flex-wrap">
+                                                        <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${question.topic === 'Machine Learning' ? 'bg-blue-500/20 text-blue-400' :
+                                                            question.topic === 'Data Structures' ? 'bg-emerald-500/20 text-emerald-400' :
+                                                                question.topic === 'Neural Networks' ? 'bg-purple-500/20 text-purple-400' :
+                                                                    question.topic === 'Algorithms' ? 'bg-orange-500/20 text-orange-400' :
+                                                                        'bg-pink-500/20 text-pink-400'
+                                                            }`}>
+                                                            {question.topic}
+                                                        </span>
+                                                        <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${question.difficulty === 'Beginner' ? 'bg-green-500/20 text-green-400' :
+                                                            question.difficulty === 'Intermediate' ? 'bg-yellow-500/20 text-yellow-400' :
+                                                                'bg-red-500/20 text-red-400'
+                                                            }`}>
+                                                            {question.difficulty}
+                                                        </span>
+                                                    </div>
+                                                    <div className="flex items-center gap-2">
+                                                        {releasedQuizzes.includes(question.id) && (
+                                                            <span className="flex items-center gap-1 text-xs text-emerald-400">
+                                                                <CheckCheck size={14} />
+                                                                Released
+                                                            </span>
+                                                        )}
+                                                        <button
+                                                            onClick={() => removeQuiz(question.id)}
+                                                            className="p-1 hover:bg-red-500/20 rounded transition-colors group"
+                                                            title="Remove quiz"
+                                                        >
+                                                            <X size={14} className="text-gray-500 group-hover:text-red-400" />
+                                                        </button>
+                                                    </div>
+                                                </div>
 
-                    {/* Analytics Dashboard (Collapsible) */}
-                    {showAnalytics && (
-                        <div className="mt-6 space-y-6 animate-in fade-in duration-300">
-                            {/* Stats Cards */}
-                            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-2.5 bg-blue-500/20 rounded-lg">
-                                            <Users size={20} className="text-blue-400" />
-                                        </div>
-                                        <div>
-                                            <p className="text-2xl font-bold text-white">{getOverallStats().uniqueStudents}</p>
-                                            <p className="text-xs text-gray-400">Students Participated</p>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-2.5 bg-emerald-500/20 rounded-lg">
-                                            <Target size={20} className="text-emerald-400" />
-                                        </div>
-                                        <div>
-                                            <p className="text-2xl font-bold text-white">{getOverallStats().accuracy}%</p>
-                                            <p className="text-xs text-gray-400">Overall Accuracy</p>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-2.5 bg-purple-500/20 rounded-lg">
-                                            <HelpCircle size={20} className="text-purple-400" />
-                                        </div>
-                                        <div>
-                                            <p className="text-2xl font-bold text-white">{getOverallStats().questionsAnswered}</p>
-                                            <p className="text-xs text-gray-400">Questions Answered</p>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
-                                    <div className="flex items-center gap-3">
-                                        <div className="p-2.5 bg-orange-500/20 rounded-lg">
-                                            <TrendingUp size={20} className="text-orange-400" />
-                                        </div>
-                                        <div>
-                                            <p className="text-2xl font-bold text-white">{getOverallStats().totalResponses}</p>
-                                            <p className="text-xs text-gray-400">Total Responses</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
+                                                <h4 className="font-medium text-white mb-3 leading-snug">
+                                                    {question.question}
+                                                </h4>
 
-                            {/* Topic Understanding Chart */}
-                            <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
-                                <h4 className="font-semibold text-white mb-4 flex items-center gap-2">
-                                    <BarChart3 size={18} className="text-indigo-400" />
-                                    Topic Understanding Breakdown
-                                </h4>
-                                <div className="space-y-4">
-                                    {getTopicAnalytics().map((topic) => (
-                                        <div key={topic.topic}>
-                                            <div className="flex items-center justify-between mb-1.5">
-                                                <span className="text-sm text-gray-300">{topic.topic}</span>
-                                                <span className="text-sm font-medium text-white">
-                                                    {topic.percentage}% ({topic.correct}/{topic.total})
-                                                </span>
-                                            </div>
-                                            <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
-                                                <div
-                                                    className={`h-full rounded-full transition-all duration-500 ${topic.percentage >= 80 ? 'bg-gradient-to-r from-emerald-500 to-emerald-400' :
-                                                        topic.percentage >= 60 ? 'bg-gradient-to-r from-yellow-500 to-yellow-400' :
-                                                            'bg-gradient-to-r from-red-500 to-red-400'
+                                                <div className="space-y-1.5 mb-4">
+                                                    {question.options.map((option, idx) => (
+                                                        <div
+                                                            key={idx}
+                                                            className={`text-xs px-3 py-1.5 rounded-lg ${idx === question.correctAnswer
+                                                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                                                                : 'bg-gray-700/50 text-gray-400'
+                                                                }`}
+                                                        >
+                                                            {String.fromCharCode(65 + idx)}. {option}
+                                                        </div>
+                                                    ))}
+                                                </div>
+
+                                                <button
+                                                    onClick={() => releaseQuiz(question.id)}
+                                                    disabled={releasedQuizzes.includes(question.id)}
+                                                    className={`w-full py-2 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${releasedQuizzes.includes(question.id)
+                                                        ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                                                        : 'bg-indigo-600 text-white hover:bg-indigo-700'
                                                         }`}
-                                                    style={{ width: `${topic.percentage}%` }}
-                                                />
+                                                >
+                                                    {releasedQuizzes.includes(question.id) ? (
+                                                        <><CheckCircle2 size={16} />Released to Class</>
+                                                    ) : (
+                                                        <><PlayCircle size={16} />Release to Class</>
+                                                    )}
+                                                </button>
                                             </div>
                                         </div>
                                     ))}
                                 </div>
-                            </div>
+                            )}
 
-                            {/* Insights Panel */}
-                            <div className="bg-gradient-to-r from-emerald-500/10 to-blue-500/10 rounded-xl border border-emerald-500/30 p-6">
-                                <h4 className="font-semibold text-white mb-3 flex items-center gap-2">
-                                    <Sparkles size={18} className="text-emerald-400" />
-                                    AI Insights
-                                </h4>
-                                <div className="space-y-2 text-sm text-gray-300">
-                                    <p className="flex items-start gap-2">
-                                        <CheckCircle2 size={16} className="text-emerald-400 mt-0.5 shrink-0" />
-                                        <span><strong className="text-white">Strong understanding</strong> in Neural Networks and Machine Learning topics</span>
-                                    </p>
-                                    <p className="flex items-start gap-2">
-                                        <AlertCircle size={16} className="text-yellow-400 mt-0.5 shrink-0" />
-                                        <span><strong className="text-white">Consider reviewing</strong> Data Structures - some students struggled with complexity analysis</span>
-                                    </p>
-                                    <p className="flex items-start gap-2">
-                                        <TrendingUp size={16} className="text-blue-400 mt-0.5 shrink-0" />
-                                        <span><strong className="text-white">Participation rate</strong> is excellent - {getOverallStats().uniqueStudents} out of 5 students engaged with quizzes</span>
-                                    </p>
+                            {/* Analytics Dashboard (Collapsible) */}
+                            {showAnalytics && (
+                                <div className="mt-6 space-y-6 animate-in fade-in duration-300">
+                                    {/* Stats Cards */}
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                        <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-2.5 bg-blue-500/20 rounded-lg">
+                                                    <Users size={20} className="text-blue-400" />
+                                                </div>
+                                                <div>
+                                                    <p className="text-2xl font-bold text-white">{getOverallStats().uniqueStudents}</p>
+                                                    <p className="text-xs text-gray-400">Students Participated</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-2.5 bg-emerald-500/20 rounded-lg">
+                                                    <Target size={20} className="text-emerald-400" />
+                                                </div>
+                                                <div>
+                                                    <p className="text-2xl font-bold text-white">{getOverallStats().accuracy}%</p>
+                                                    <p className="text-xs text-gray-400">Overall Accuracy</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-2.5 bg-purple-500/20 rounded-lg">
+                                                    <HelpCircle size={20} className="text-purple-400" />
+                                                </div>
+                                                <div>
+                                                    <p className="text-2xl font-bold text-white">{getOverallStats().questionsAnswered}</p>
+                                                    <p className="text-xs text-gray-400">Questions Answered</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
+                                            <div className="flex items-center gap-3">
+                                                <div className="p-2.5 bg-orange-500/20 rounded-lg">
+                                                    <TrendingUp size={20} className="text-orange-400" />
+                                                </div>
+                                                <div>
+                                                    <p className="text-2xl font-bold text-white">{getOverallStats().totalResponses}</p>
+                                                    <p className="text-xs text-gray-400">Total Responses</p>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Topic Understanding Chart */}
+                                    <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
+                                        <h4 className="font-semibold text-white mb-4 flex items-center gap-2">
+                                            <BarChart3 size={18} className="text-indigo-400" />
+                                            Topic Understanding Breakdown
+                                        </h4>
+                                        <div className="space-y-4">
+                                            {getTopicAnalytics().map((topic) => (
+                                                <div key={topic.topic}>
+                                                    <div className="flex items-center justify-between mb-1.5">
+                                                        <span className="text-sm text-gray-300">{topic.topic}</span>
+                                                        <span className="text-sm font-medium text-white">
+                                                            {topic.percentage}% ({topic.correct}/{topic.total})
+                                                        </span>
+                                                    </div>
+                                                    <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
+                                                        <div
+                                                            className={`h-full rounded-full transition-all duration-500 ${topic.percentage >= 80 ? 'bg-gradient-to-r from-emerald-500 to-emerald-400' :
+                                                                topic.percentage >= 60 ? 'bg-gradient-to-r from-yellow-500 to-yellow-400' :
+                                                                    'bg-gradient-to-r from-red-500 to-red-400'
+                                                                }`}
+                                                            style={{ width: `${topic.percentage}%` }}
+                                                        />
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Insights Panel */}
+                                    <div className="bg-gradient-to-r from-emerald-500/10 to-blue-500/10 rounded-xl border border-emerald-500/30 p-6">
+                                        <h4 className="font-semibold text-white mb-3 flex items-center gap-2">
+                                            <Sparkles size={18} className="text-emerald-400" />
+                                            AI Insights
+                                        </h4>
+                                        <div className="space-y-2 text-sm text-gray-300">
+                                            <p className="flex items-start gap-2">
+                                                <CheckCircle2 size={16} className="text-emerald-400 mt-0.5 shrink-0" />
+                                                <span><strong className="text-white">Strong understanding</strong> in Neural Networks and Machine Learning topics</span>
+                                            </p>
+                                            <p className="flex items-start gap-2">
+                                                <AlertCircle size={16} className="text-yellow-400 mt-0.5 shrink-0" />
+                                                <span><strong className="text-white">Consider reviewing</strong> Data Structures - some students struggled with complexity analysis</span>
+                                            </p>
+                                            <p className="flex items-start gap-2">
+                                                <TrendingUp size={16} className="text-blue-400 mt-0.5 shrink-0" />
+                                                <span><strong className="text-white">Participation rate</strong> is excellent - {getOverallStats().uniqueStudents} out of 5 students engaged with quizzes</span>
+                                            </p>
+                                        </div>
+                                    </div>
                                 </div>
-                            </div>
+                            )}
                         </div>
-                    )}
-                </div>
-            </div>
+                    </div>
 
 
                     {/* Clear Content Section */}
@@ -1105,10 +1105,10 @@ export default function StudentPerformanceSection() {
                                             key={level}
                                             onClick={() => setSelectedDifficulty(level)}
                                             className={`py-3 px-4 rounded-lg font-medium transition-all flex flex-col items-center gap-1 ${selectedDifficulty === level
-                                                    ? level === 'Beginner' ? 'bg-green-500/20 border-2 border-green-500 text-green-400'
-                                                        : level === 'Intermediate' ? 'bg-yellow-500/20 border-2 border-yellow-500 text-yellow-400'
-                                                            : 'bg-red-500/20 border-2 border-red-500 text-red-400'
-                                                    : 'bg-gray-800 border border-gray-700 text-gray-400 hover:border-gray-600'
+                                                ? level === 'Beginner' ? 'bg-green-500/20 border-2 border-green-500 text-green-400'
+                                                    : level === 'Intermediate' ? 'bg-yellow-500/20 border-2 border-yellow-500 text-yellow-400'
+                                                        : 'bg-red-500/20 border-2 border-red-500 text-red-400'
+                                                : 'bg-gray-800 border border-gray-700 text-gray-400 hover:border-gray-600'
                                                 }`}
                                         >
                                             <span className="text-sm">{level}</span>
