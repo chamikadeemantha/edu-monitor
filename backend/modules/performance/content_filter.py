@@ -1,11 +1,15 @@
 """
 Content Filter
 Uses LLM to filter raw speech transcripts and extract meaningful content.
+Falls back to regex-based filtering if LLM is not available.
 """
 import re
+import logging
 from typing import List
-from .llm_service import filter_transcript
+from .llm_service import filter_transcript, is_ollama_available
 
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Common filler words and phrases to remove
 FILLER_PATTERNS = [
@@ -80,6 +84,7 @@ def filter_and_clean_transcript(
         Cleaned, meaningful content
     """
     if not raw_transcript or len(raw_transcript) < min_length:
+        logger.debug(f"Transcript too short ({len(raw_transcript) if raw_transcript else 0} chars)")
         return ""
     
     # Quick clean first
@@ -87,18 +92,27 @@ def filter_and_clean_transcript(
     
     # Check if there's meaningful content
     if not is_meaningful_segment(pre_cleaned, min_words=5):
+        logger.debug("No meaningful content found in transcript")
         return ""
     
-    # Use LLM for intelligent filtering if enabled
+    # Use LLM for intelligent filtering if enabled and available
     if use_llm and len(pre_cleaned) > 100:
-        try:
-            cleaned = filter_transcript(pre_cleaned)
-            # Validate LLM output
-            if cleaned and len(cleaned) > 20 and not cleaned.startswith("[Error"):
-                return cleaned.strip()
-        except Exception:
-            pass  # Fall back to pre-cleaned version
+        if not is_ollama_available():
+            logger.info("LLM not available, using regex-based transcript filtering only")
+        else:
+            try:
+                logger.debug("Using LLM to filter transcript")
+                cleaned = filter_transcript(pre_cleaned)
+                # Validate LLM output
+                if cleaned and len(cleaned) > 20 and not cleaned.startswith("[Error") and not cleaned.startswith("["):
+                    logger.info(f"LLM filtered transcript: {len(raw_transcript)} -> {len(cleaned)} chars")
+                    return cleaned.strip()
+                else:
+                    logger.debug("LLM filtering returned empty or error, using regex fallback")
+            except Exception as e:
+                logger.warning(f"LLM filtering failed: {e}, using regex fallback")
     
+    logger.info(f"Using regex-cleaned transcript: {len(raw_transcript)} -> {len(pre_cleaned)} chars")
     return pre_cleaned
 
 
@@ -118,9 +132,13 @@ def batch_filter_transcripts(
     """
     cleaned_segments = []
     
-    for segment in transcript_segments:
+    for i, segment in enumerate(transcript_segments):
         cleaned = filter_and_clean_transcript(segment, use_llm)
         if cleaned:
             cleaned_segments.append(cleaned)
+            logger.debug(f"Segment {i+1}/{len(transcript_segments)}: cleaned successfully")
+        else:
+            logger.debug(f"Segment {i+1}/{len(transcript_segments)}: no meaningful content")
     
+    logger.info(f"Batch filtered {len(cleaned_segments)}/{len(transcript_segments)} segments")
     return cleaned_segments

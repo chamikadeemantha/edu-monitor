@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 
 import EngagementDetailsModal from './EngagementDetailsModal';
+import StudentPerformanceSection from '../performance/page';
 
 export default function TeacherDashboard() {
   const [activeTab, setActiveTab] = useState('engagement');
@@ -357,8 +358,13 @@ export default function TeacherDashboard() {
             </div>
           )}
 
+          {/* Student Performance Tab */}
+          {activeTab === "student-perf" && (
+            <StudentPerformanceSection />
+          )}
+
           {/* Placeholder for other tabs */}
-          {activeTab !== "engagement" && (
+          {activeTab !== "engagement" && activeTab !== "student-perf" && (
             <div className="flex flex-col items-center justify-center h-[60vh] text-gray-500">
               <div className="p-8 rounded-full bg-gray-800 mb-6">
                 {(() => {

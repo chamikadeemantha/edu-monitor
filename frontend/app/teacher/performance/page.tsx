@@ -10,11 +10,17 @@ import {
     Loader2,
     Trash2,
     Send,
-    GraduationCap
+    GraduationCap,
+    ClipboardPaste,
+    Clock,
+    Zap
 } from 'lucide-react';
 
 // API Configuration
 const API_BASE_URL = "http://localhost:8000";
+
+// Auto-submit interval in milliseconds (5 seconds)
+const AUTO_SUBMIT_INTERVAL = 5000;
 
 interface UploadStatus {
     status: 'idle' | 'uploading' | 'success' | 'error';
@@ -41,8 +47,43 @@ export default function StudentPerformanceSection() {
     const [transcriptStatus, setTranscriptStatus] = useState<TranscriptStatus>({ status: 'idle', message: '' });
     const recognitionRef = useRef<any>(null);
 
+    // Auto-submit state
+    const [autoSubmitEnabled, setAutoSubmitEnabled] = useState(true);
+    const [lastAutoSubmit, setLastAutoSubmit] = useState<Date | null>(null);
+    const [autoSubmitCount, setAutoSubmitCount] = useState(0);
+    const pendingTranscriptRef = useRef('');
+    const autoSubmitTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+    // Demo paste state
+    const [pasteText, setPasteText] = useState('');
+    const [pasteStatus, setPasteStatus] = useState<TranscriptStatus>({ status: 'idle', message: '' });
+
     // Stats
     const [contentStats, setContentStats] = useState<{ document_count: number } | null>(null);
+
+    // Auto-submit function
+    const autoSubmitTranscript = useCallback(async (text: string) => {
+        if (!text.trim() || text.trim().length < 20) return;
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/performance/transcript`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ transcript: text, use_llm_filter: false }), // Use regex for speed
+            });
+
+            const data = await response.json();
+
+            if (response.ok && data.success) {
+                setAutoSubmitCount(prev => prev + 1);
+                setLastAutoSubmit(new Date());
+                fetchStats();
+                console.log(`Auto-submitted chunk: ${text.length} chars`);
+            }
+        } catch (error) {
+            console.error('Auto-submit failed:', error);
+        }
+    }, []);
 
     // Initialize speech recognition
     useEffect(() => {
@@ -67,6 +108,7 @@ export default function StudentPerformanceSection() {
                     }
                     if (final) {
                         setTranscript(prev => prev + final);
+                        pendingTranscriptRef.current += final;
                     }
                     setInterimTranscript(interim);
                 };
@@ -77,8 +119,13 @@ export default function StudentPerformanceSection() {
                 };
 
                 recognition.onend = () => {
-                    if (isRecording) {
-                        recognition.start();
+                    // Only restart if still recording
+                    if (isRecording && recognitionRef.current) {
+                        try {
+                            recognitionRef.current.start();
+                        } catch (e) {
+                            console.error('Failed to restart recognition:', e);
+                        }
                     }
                 };
 
@@ -87,6 +134,32 @@ export default function StudentPerformanceSection() {
         }
         fetchStats();
     }, []);
+
+    // Auto-submit timer effect
+    useEffect(() => {
+        if (isRecording && autoSubmitEnabled) {
+            // Start auto-submit timer
+            autoSubmitTimerRef.current = setInterval(() => {
+                const pending = pendingTranscriptRef.current;
+                if (pending.trim().length >= 20) {
+                    autoSubmitTranscript(pending);
+                    pendingTranscriptRef.current = ''; // Clear pending after submit
+                }
+            }, AUTO_SUBMIT_INTERVAL);
+        } else {
+            // Clear timer when not recording
+            if (autoSubmitTimerRef.current) {
+                clearInterval(autoSubmitTimerRef.current);
+                autoSubmitTimerRef.current = null;
+            }
+        }
+
+        return () => {
+            if (autoSubmitTimerRef.current) {
+                clearInterval(autoSubmitTimerRef.current);
+            }
+        };
+    }, [isRecording, autoSubmitEnabled, autoSubmitTranscript]);
 
     const fetchStats = async () => {
         try {
@@ -163,9 +236,17 @@ export default function StudentPerformanceSection() {
         if (isRecording) {
             recognitionRef.current.stop();
             setIsRecording(false);
+
+            // Submit any remaining pending transcript
+            if (autoSubmitEnabled && pendingTranscriptRef.current.trim().length >= 20) {
+                autoSubmitTranscript(pendingTranscriptRef.current);
+                pendingTranscriptRef.current = '';
+            }
         } else {
             setTranscript('');
             setInterimTranscript('');
+            setAutoSubmitCount(0);
+            pendingTranscriptRef.current = '';
             recognitionRef.current.start();
             setIsRecording(true);
         }
@@ -175,6 +256,8 @@ export default function StudentPerformanceSection() {
         setTranscript('');
         setInterimTranscript('');
         setTranscriptStatus({ status: 'idle', message: '' });
+        setAutoSubmitCount(0);
+        pendingTranscriptRef.current = '';
     };
 
     const submitTranscript = async () => {
@@ -193,6 +276,7 @@ export default function StudentPerformanceSection() {
             if (response.ok && data.success) {
                 setTranscriptStatus({ status: 'success', message: `Stored ${data.data?.chunks_stored || 1} content chunks` });
                 setTranscript('');
+                pendingTranscriptRef.current = '';
                 fetchStats();
             } else {
                 setTranscriptStatus({ status: 'error', message: data.detail || data.message || 'Processing failed' });
@@ -202,11 +286,38 @@ export default function StudentPerformanceSection() {
         }
     };
 
+    // Demo paste handlers
+    const submitPasteText = async () => {
+        if (!pasteText.trim()) return;
+        setPasteStatus({ status: 'processing', message: 'Processing pasted transcript...' });
+
+        try {
+            const response = await fetch(`${API_BASE_URL}/api/performance/transcript`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ transcript: pasteText, use_llm_filter: true }),
+            });
+
+            const data = await response.json();
+
+            if (response.ok && data.success) {
+                setPasteStatus({ status: 'success', message: `Stored ${data.data?.chunks_stored || 1} content chunks` });
+                setPasteText('');
+                fetchStats();
+            } else {
+                setPasteStatus({ status: 'error', message: data.detail || data.message || 'Processing failed' });
+            }
+        } catch (error) {
+            setPasteStatus({ status: 'error', message: 'Failed to connect to server' });
+        }
+    };
+
     const clearContent = async () => {
         if (!confirm('Are you sure you want to clear all stored content?')) return;
         try {
             await fetch(`${API_BASE_URL}/api/performance/clear`, { method: 'DELETE' });
             fetchStats();
+            setAutoSubmitCount(0);
         } catch (error) {
             console.error('Failed to clear:', error);
         }
@@ -274,14 +385,26 @@ export default function StudentPerformanceSection() {
                     </div>
                 </div>
 
-                {/* Live Transcription Section */}
+                {/* Live Transcription Section with Auto-Submit */}
                 <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
                     <div className="p-4 border-b border-gray-700 bg-gray-900/50">
-                        <h3 className="font-semibold flex items-center gap-2">
-                            <Mic size={18} className="text-purple-400" />
-                            Live Transcription
-                        </h3>
-                        <p className="text-xs text-gray-500 mt-1">Record lecture speech in real-time</p>
+                        <div className="flex items-center justify-between">
+                            <div>
+                                <h3 className="font-semibold flex items-center gap-2">
+                                    <Mic size={18} className="text-purple-400" />
+                                    Live Transcription
+                                </h3>
+                                <p className="text-xs text-gray-500 mt-1">Auto-saves every 5 seconds while recording</p>
+                            </div>
+                            {/* Auto-submit toggle */}
+                            <button
+                                onClick={() => setAutoSubmitEnabled(!autoSubmitEnabled)}
+                                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${autoSubmitEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-gray-700 text-gray-400'}`}
+                            >
+                                <Zap size={14} />
+                                Auto-Save {autoSubmitEnabled ? 'ON' : 'OFF'}
+                            </button>
+                        </div>
                     </div>
                     <div className="p-6">
                         <div className="flex justify-center mb-4">
@@ -292,9 +415,21 @@ export default function StudentPerformanceSection() {
                                 {isRecording ? <MicOff size={28} className="text-white" /> : <Mic size={28} className="text-white" />}
                             </button>
                         </div>
-                        <p className="text-center text-sm text-gray-400 mb-4">{isRecording ? 'Recording... Click to stop' : 'Click to start recording'}</p>
 
-                        <div className="bg-gray-900 rounded-lg p-4 min-h-[150px] max-h-[200px] overflow-y-auto border border-gray-700">
+                        {/* Recording status */}
+                        <div className="text-center mb-4">
+                            <p className="text-sm text-gray-400">
+                                {isRecording ? 'Recording... Click to stop' : 'Click to start recording'}
+                            </p>
+                            {isRecording && autoSubmitEnabled && (
+                                <div className="flex items-center justify-center gap-2 mt-2 text-xs text-emerald-400">
+                                    <Clock size={12} />
+                                    {autoSubmitCount > 0 ? `${autoSubmitCount} chunks auto-saved` : 'Will auto-save every 5s'}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="bg-gray-900 rounded-lg p-4 min-h-[120px] max-h-[160px] overflow-y-auto border border-gray-700">
                             {transcript || interimTranscript ? (
                                 <p className="text-gray-200 leading-relaxed text-sm">
                                     {transcript}
@@ -312,7 +447,7 @@ export default function StudentPerformanceSection() {
                                     disabled={!transcript.trim() || transcriptStatus.status === 'processing'}
                                     className={`flex-1 py-2.5 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${transcript.trim() && transcriptStatus.status !== 'processing' ? 'bg-purple-600 text-white hover:bg-purple-700' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`}
                                 >
-                                    {transcriptStatus.status === 'processing' ? <><Loader2 size={16} className="animate-spin" />Processing...</> : <><Send size={16} />Submit</>}
+                                    {transcriptStatus.status === 'processing' ? <><Loader2 size={16} className="animate-spin" />Processing...</> : <><Send size={16} />Submit All</>}
                                 </button>
                                 <button
                                     onClick={clearTranscript}
@@ -320,7 +455,6 @@ export default function StudentPerformanceSection() {
                                     className={`py-2.5 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${transcript.trim() || interimTranscript ? 'bg-gray-600 text-white hover:bg-gray-500' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`}
                                 >
                                     <Trash2 size={16} />
-                                    Clear
                                 </button>
                             </div>
 
@@ -335,29 +469,80 @@ export default function StudentPerformanceSection() {
                 </div>
             </div>
 
+            {/* Demo Paste Section */}
+            <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+                <div className="p-4 border-b border-gray-700 bg-gray-900/50">
+                    <h3 className="font-semibold flex items-center gap-2">
+                        <ClipboardPaste size={18} className="text-orange-400" />
+                        Paste Transcript (Demo Mode)
+                    </h3>
+                    <p className="text-xs text-gray-500 mt-1">Paste lecture transcript text directly for testing without recording</p>
+                </div>
+                <div className="p-6">
+                    <textarea
+                        value={pasteText}
+                        onChange={(e) => setPasteText(e.target.value)}
+                        placeholder="Paste your lecture transcript here for demo purposes...&#10;&#10;Example: Today we'll be discussing machine learning fundamentals. Machine learning is a subset of artificial intelligence that enables computers to learn from data without being explicitly programmed..."
+                        className="w-full h-32 bg-gray-900 border border-gray-700 rounded-lg p-4 text-gray-200 text-sm resize-none focus:outline-none focus:border-orange-500/50 placeholder-gray-600"
+                    />
+
+                    <div className="mt-4 flex gap-3">
+                        <button
+                            onClick={submitPasteText}
+                            disabled={!pasteText.trim() || pasteStatus.status === 'processing'}
+                            className={`flex-1 py-2.5 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${pasteText.trim() && pasteStatus.status !== 'processing' ? 'bg-orange-600 text-white hover:bg-orange-700' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`}
+                        >
+                            {pasteStatus.status === 'processing' ? <><Loader2 size={16} className="animate-spin" />Processing...</> : <><Send size={16} />Submit Pasted Text</>}
+                        </button>
+                        <button
+                            onClick={() => { setPasteText(''); setPasteStatus({ status: 'idle', message: '' }); }}
+                            disabled={!pasteText.trim()}
+                            className={`py-2.5 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${pasteText.trim() ? 'bg-gray-600 text-white hover:bg-gray-500' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`}
+                        >
+                            <Trash2 size={16} />
+                            Clear
+                        </button>
+                    </div>
+
+                    {pasteStatus.message && (
+                        <div className={`mt-3 flex items-start gap-2 p-3 rounded-lg text-sm ${pasteStatus.status === 'success' ? 'bg-emerald-500/10 text-emerald-400' : pasteStatus.status === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                            {pasteStatus.status === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+                            {pasteStatus.message}
+                        </div>
+                    )}
+                </div>
+            </div>
+
             {/* How it works */}
             <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
                 <h3 className="font-semibold text-white mb-4">How it works</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                     <div className="flex gap-3">
                         <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 font-bold shrink-0">1</div>
                         <div>
                             <h4 className="font-medium text-white text-sm">Upload Slides</h4>
-                            <p className="text-xs text-gray-500">Text is extracted and stored for AI retrieval</p>
+                            <p className="text-xs text-gray-500">Text is extracted and stored</p>
                         </div>
                     </div>
                     <div className="flex gap-3">
                         <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-400 font-bold shrink-0">2</div>
                         <div>
                             <h4 className="font-medium text-white text-sm">Record Lecture</h4>
-                            <p className="text-xs text-gray-500">Speech is transcribed and filtered for key content</p>
+                            <p className="text-xs text-gray-500">Speech auto-saves every 5s</p>
                         </div>
                     </div>
                     <div className="flex gap-3">
-                        <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold shrink-0">3</div>
+                        <div className="w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center text-orange-400 font-bold shrink-0">3</div>
+                        <div>
+                            <h4 className="font-medium text-white text-sm">Or Paste Text</h4>
+                            <p className="text-xs text-gray-500">For demos without mic</p>
+                        </div>
+                    </div>
+                    <div className="flex gap-3">
+                        <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold shrink-0">4</div>
                         <div>
                             <h4 className="font-medium text-white text-sm">Student Access</h4>
-                            <p className="text-xs text-gray-500">Students get AI summaries and can ask questions</p>
+                            <p className="text-xs text-gray-500">AI summaries & Q&A ready</p>
                         </div>
                     </div>
                 </div>

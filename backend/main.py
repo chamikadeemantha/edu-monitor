@@ -36,6 +36,15 @@ from fastapi import FastAPI
 from fastapi.responses import StreamingResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
+import os
+import logging
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Import performance module routes
 from modules.performance.routes import router as performance_router
@@ -58,7 +67,38 @@ from pydantic import BaseModel
 from modules.attendance.routes import router as attendance_router
 
 
-app = FastAPI()
+app = FastAPI(title="EduMonitor Backend", description="Classroom engagement and AI-powered lecture assistant")
+
+
+# Startup event to check dependencies
+@app.on_event("startup")
+async def startup_event():
+    """Check dependencies on startup and log their status."""
+    logger.info("=" * 60)
+    logger.info("EduMonitor Backend Starting")
+    logger.info("=" * 60)
+    
+    # Check Ollama availability
+    try:
+        from modules.performance.llm_service import check_ollama_connection, get_available_models
+        ollama_ok = check_ollama_connection()
+        if ollama_ok:
+            models = get_available_models()
+            logger.info(f"✅ Ollama LLM is available. Models: {models}")
+        else:
+            logger.warning("⚠️  Ollama LLM is NOT running")
+            logger.warning("   - AI Summary and Q&A features will be disabled")
+            logger.warning("   - Upload and transcript storage will still work")
+            logger.warning("   To enable LLM features:")
+            logger.warning("   1. Install Ollama from https://ollama.com")
+            logger.warning("   2. Run: ollama run llama3-it")
+    except Exception as e:
+        logger.warning(f"⚠️  Could not check Ollama status: {e}")
+    
+    logger.info("=" * 60)
+    logger.info("Server ready at http://localhost:8000")
+    logger.info("=" * 60)
+
 
 # Enable CORS for Next.js frontend
 app.add_middleware(
@@ -71,6 +111,7 @@ app.add_middleware(
 
 # Register routers
 app.include_router(performance_router)
+
 
 @app.get("/")
 def read_root():
