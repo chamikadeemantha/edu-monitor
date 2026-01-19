@@ -4,8 +4,7 @@ import { GraduationCap, Users, ArrowRight } from "lucide-react";
 export default function Home() {
   return (
     <main className="flex min-h-screen flex-col items-center justify-center p-24 bg-gradient-to-br from-gray-900 to-gray-800 text-white">
-      <div className="z-10 max-w-5xl w-full items-center justify-between font-mono text-sm lg:flex mb-12">
-      </div>
+
 
       <div className="text-center mb-16">
         <h1 className="text-5xl font-bold tracking-tight mb-4 bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-emerald-400">
