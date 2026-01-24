@@ -64,8 +64,16 @@ from modules.engagement.run_inference import run_inference, LATEST_STATS, STATS_
 from pydantic import BaseModel
 
 # Attendance router
+# Attendance router
 from modules.attendance.routes import router as attendance_router
 
+# Auth router
+from modules.auth.routes import router as auth_router
+from database import engine, Base, SessionLocal
+from modules.auth.seeder import seed_users
+
+# Create DB tables
+Base.metadata.create_all(bind=engine)
 
 app = FastAPI(title="EduMonitor Backend", description="Classroom engagement and AI-powered lecture assistant")
 
@@ -98,6 +106,16 @@ async def startup_event():
     logger.info("=" * 60)
     logger.info("Server ready at http://localhost:8000")
     logger.info("=" * 60)
+
+    # Seed database
+    db = SessionLocal()
+    try:
+        seed_users(db)
+        logger.info("✅ Database seeded with default users")
+    except Exception as e:
+        logger.error(f"⚠️  Database seeding failed: {e}")
+    finally:
+        db.close()
 
 
 # Enable CORS for Next.js frontend
@@ -203,6 +221,7 @@ def video_feed():
     )
 
 app.include_router(attendance_router, prefix="/api")
+app.include_router(auth_router, prefix="/api/auth")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

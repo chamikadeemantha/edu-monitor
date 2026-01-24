@@ -1,0 +1,19 @@
+from sqlalchemy import Column, Integer, String, DateTime, Enum
+from sqlalchemy.sql import func
+import enum
+from database import Base
+
+class UserRole(str, enum.Enum):
+    ADMIN = "admin"
+    TEACHER = "teacher"
+    STUDENT = "student"
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True)
+    email = Column(String, unique=True, index=True)
+    password_hash = Column(String)
+    role = Column(Enum(UserRole), default=UserRole.STUDENT)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

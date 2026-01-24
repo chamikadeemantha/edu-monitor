@@ -18,7 +18,7 @@ export default function Home() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 w-full max-w-4xl">
         {/* Teacher Card */}
         <Link
-          href="/teacher/engagement"
+          href="/login"
           className="group relative flex flex-col items-center p-8 rounded-2xl border border-gray-700 bg-gray-800/50 hover:bg-gray-800 hover:border-blue-500 transition-all duration-300"
         >
           <div className="p-4 rounded-full bg-blue-500/10 text-blue-400 mb-6 group-hover:scale-110 transition-transform">
@@ -29,13 +29,13 @@ export default function Home() {
             Monitor student engagement, view class performance metrics, and track attendance.
           </p>
           <span className="flex items-center text-blue-400 font-medium group-hover:translate-x-1 transition-transform">
-            Access Dashboard <ArrowRight className="ml-2 w-4 h-4" />
+            Teacher Login <ArrowRight className="ml-2 w-4 h-4" />
           </span>
         </Link>
 
         {/* Student Card */}
         <Link
-          href="/student/dashboard"
+          href="/login"
           className="group relative flex flex-col items-center p-8 rounded-2xl border border-gray-700 bg-gray-800/50 hover:bg-gray-800 hover:border-emerald-500 transition-all duration-300"
         >
           <div className="p-4 rounded-full bg-emerald-500/10 text-emerald-400 mb-6 group-hover:scale-110 transition-transform">
