@@ -1,5 +1,7 @@
 "use client";
 import React, { useState, useRef, useEffect } from 'react';
+import { useAuth, UserRole } from "@/context/AuthContext";
+import RoleGuard from "@/components/RoleGuard";
 import Link from 'next/link';
 import {
   BookOpen,
@@ -318,346 +320,348 @@ export default function StudentDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
-      {/* Header */}
-      <nav className="bg-gray-800 border-b border-gray-700 px-8 py-4 flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <div className="bg-gradient-to-r from-emerald-500 to-teal-500 p-2.5 rounded-xl">
-            <GraduationCap size={22} className="text-white" />
-          </div>
-          <div>
-            <h1 className="font-bold text-lg">Student Portal</h1>
-            <p className="text-xs text-gray-400">AI-Powered Learning</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <Link
-            href="/student/dashboard/attendance"
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium"
-          >
-            <UserCheck size={16} />
-            Attendance
-          </Link>
-          {/* Demo Quiz Button */}
-          <button
-            onClick={triggerQuiz}
-            className="relative flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium"
-          >
-            <Brain size={16} />
-            Demo Quiz
-            {quizNotification && (
-              <span className="absolute -top-1 -right-1 flex h-4 w-4">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-4 w-4 bg-red-500 text-[10px] items-center justify-center">!</span>
-              </span>
-            )}
-          </button>
-          <div className="flex items-center gap-2 bg-gray-700/50 px-3 py-1.5 rounded-lg">
-            <FileText size={14} className="text-emerald-400" />
-            <span className="text-sm">{contentCount ?? 0} content chunks</span>
-          </div>
+    <RoleGuard allowedRoles={[UserRole.STUDENT]}>
+      <div className="min-h-screen bg-gray-900 text-white">
+        {/* Header */}
+        <nav className="bg-gray-800 border-b border-gray-700 px-8 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-400">Welcome, <strong className="text-white">Alex</strong></span>
-            <div className="w-9 h-9 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center font-bold">A</div>
+            <div className="bg-gradient-to-r from-emerald-500 to-teal-500 p-2.5 rounded-xl">
+              <GraduationCap size={22} className="text-white" />
+            </div>
+            <div>
+              <h1 className="font-bold text-lg">Student Portal</h1>
+              <p className="text-xs text-gray-400">AI-Powered Learning</p>
+            </div>
           </div>
-        </div>
-      </nav>
+          <div className="flex items-center gap-4">
+            <Link
+              href="/student/dashboard/attendance"
+              className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium"
+            >
+              <UserCheck size={16} />
+              Attendance
+            </Link>
+            {/* Demo Quiz Button */}
+            <button
+              onClick={triggerQuiz}
+              className="relative flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium"
+            >
+              <Brain size={16} />
+              Demo Quiz
+              {quizNotification && (
+                <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-4 w-4 bg-red-500 text-[10px] items-center justify-center">!</span>
+                </span>
+              )}
+            </button>
+            <div className="flex items-center gap-2 bg-gray-700/50 px-3 py-1.5 rounded-lg">
+              <FileText size={14} className="text-emerald-400" />
+              <span className="text-sm">{contentCount ?? 0} content chunks</span>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-gray-400">Welcome, <strong className="text-white">Alex</strong></span>
+              <div className="w-9 h-9 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center font-bold">A</div>
+            </div>
+          </div>
+        </nav>
 
-      <main className="max-w-7xl mx-auto p-8">
-        {/* AI Learning Assistant - PRIORITY SECTION */}
-        <section className="mb-8">
-          <div className="bg-gradient-to-r from-purple-600 via-blue-600 to-cyan-500 rounded-2xl p-[2px]">
-            <div className="bg-gray-900 rounded-2xl overflow-hidden">
-              {/* Header */}
-              <div className="bg-gradient-to-r from-purple-600/20 via-blue-600/20 to-cyan-500/20 px-6 py-5 border-b border-gray-700">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 bg-gradient-to-r from-purple-500 to-blue-500 rounded-xl">
-                      <Sparkles size={24} className="text-white" />
+        <main className="max-w-7xl mx-auto p-8">
+          {/* AI Learning Assistant - PRIORITY SECTION */}
+          <section className="mb-8">
+            <div className="bg-gradient-to-r from-purple-600 via-blue-600 to-cyan-500 rounded-2xl p-[2px]">
+              <div className="bg-gray-900 rounded-2xl overflow-hidden">
+                {/* Header */}
+                <div className="bg-gradient-to-r from-purple-600/20 via-blue-600/20 to-cyan-500/20 px-6 py-5 border-b border-gray-700">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 bg-gradient-to-r from-purple-500 to-blue-500 rounded-xl">
+                        <Sparkles size={24} className="text-white" />
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-bold">AI Learning Assistant</h2>
+                        <p className="text-sm text-gray-400">Get summaries and ask questions about your lectures</p>
+                      </div>
                     </div>
-                    <div>
-                      <h2 className="text-xl font-bold">AI Learning Assistant</h2>
-                      <p className="text-sm text-gray-400">Get summaries and ask questions about your lectures</p>
-                    </div>
+                    <span className="flex items-center gap-2 bg-emerald-500/20 text-emerald-400 px-3 py-1.5 rounded-full text-sm">
+                      <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
+                      AI Ready
+                    </span>
                   </div>
-                  <span className="flex items-center gap-2 bg-emerald-500/20 text-emerald-400 px-3 py-1.5 rounded-full text-sm">
-                    <span className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-                    AI Ready
-                  </span>
                 </div>
-              </div>
 
-              <div className="p-6">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  {/* Summary Section */}
-                  <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
-                    <div className="p-4 border-b border-gray-700 bg-gray-800/50 flex items-center justify-between">
-                      <h3 className="font-semibold flex items-center gap-2">
-                        <BookOpen size={18} className="text-purple-400" />
-                        Lecture Summary
-                      </h3>
-                      <button
-                        onClick={generateSummary}
-                        disabled={isSummaryLoading}
-                        className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                      >
-                        {isSummaryLoading ? (
-                          <><Loader2 size={16} className="animate-spin" />Generating...</>
-                        ) : (
-                          <><RefreshCw size={16} />Get Summary</>
-                        )}
-                      </button>
-                    </div>
-                    <div className="p-4 h-[400px] overflow-y-auto">
-                      {summary ? (
-                        <div className="text-gray-300 leading-relaxed whitespace-pre-wrap">{renderMarkdown(summary)}</div>
-                      ) : (
-                        <div className="h-full flex flex-col items-center justify-center text-gray-500">
-                          <BookOpen size={48} className="mb-4 opacity-30" />
-                          <p className="text-center">Click &quot;Get Summary&quot; to generate an AI-powered summary of your lecture content</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Chat Section */}
-                  <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
-                    <div className="p-4 border-b border-gray-700 bg-gray-800/50">
-                      <h3 className="font-semibold flex items-center gap-2">
-                        <MessageCircle size={18} className="text-blue-400" />
-                        Ask Questions
-                      </h3>
-                    </div>
-
-                    {/* Messages */}
-                    <div ref={chatContainerRef} className="p-4 h-[320px] overflow-y-auto space-y-4">
-                      {messages.length === 0 ? (
-                        <div className="h-full flex flex-col items-center justify-center text-gray-500">
-                          <MessageCircle size={40} className="mb-3 opacity-30" />
-                          <p className="text-center text-sm">Ask any question about the lecture content</p>
-                        </div>
-                      ) : (
-                        messages.map((msg, idx) => (
-                          <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                            {msg.role === 'assistant' && (
-                              <div className="w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-blue-500 flex items-center justify-center flex-shrink-0">
-                                <Bot size={16} className="text-white" />
-                              </div>
-                            )}
-                            <div className={`max-w-[80%] rounded-2xl px-4 py-2 ${msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-200'}`}>
-                              <div className="text-sm leading-relaxed whitespace-pre-wrap">
-                                {msg.content ? renderMarkdown(msg.content) : <Loader2 size={16} className="animate-spin" />}
-                              </div>
-                            </div>
-                            {msg.role === 'user' && (
-                              <div className="w-8 h-8 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 flex items-center justify-center flex-shrink-0">
-                                <User size={16} className="text-white" />
-                              </div>
-                            )}
-                          </div>
-                        ))
-                      )}
-                    </div>
-
-                    {/* Input */}
-                    <div className="p-4 border-t border-gray-700 bg-gray-800/50">
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={inputMessage}
-                          onChange={(e) => setInputMessage(e.target.value)}
-                          onKeyDown={handleKeyPress}
-                          placeholder="Ask a question about the lecture..."
-                          className="flex-1 px-4 py-3 rounded-xl bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          disabled={isAskLoading}
-                        />
+                <div className="p-6">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Summary Section */}
+                    <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+                      <div className="p-4 border-b border-gray-700 bg-gray-800/50 flex items-center justify-between">
+                        <h3 className="font-semibold flex items-center gap-2">
+                          <BookOpen size={18} className="text-purple-400" />
+                          Lecture Summary
+                        </h3>
                         <button
-                          onClick={askQuestion}
-                          disabled={!inputMessage.trim() || isAskLoading}
-                          className="px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          onClick={generateSummary}
+                          disabled={isSummaryLoading}
+                          className="flex items-center gap-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
                         >
-                          {isAskLoading ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
+                          {isSummaryLoading ? (
+                            <><Loader2 size={16} className="animate-spin" />Generating...</>
+                          ) : (
+                            <><RefreshCw size={16} />Get Summary</>
+                          )}
                         </button>
                       </div>
+                      <div className="p-4 h-[400px] overflow-y-auto">
+                        {summary ? (
+                          <div className="text-gray-300 leading-relaxed whitespace-pre-wrap">{renderMarkdown(summary)}</div>
+                        ) : (
+                          <div className="h-full flex flex-col items-center justify-center text-gray-500">
+                            <BookOpen size={48} className="mb-4 opacity-30" />
+                            <p className="text-center">Click &quot;Get Summary&quot; to generate an AI-powered summary of your lecture content</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Chat Section */}
+                    <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+                      <div className="p-4 border-b border-gray-700 bg-gray-800/50">
+                        <h3 className="font-semibold flex items-center gap-2">
+                          <MessageCircle size={18} className="text-blue-400" />
+                          Ask Questions
+                        </h3>
+                      </div>
+
+                      {/* Messages */}
+                      <div ref={chatContainerRef} className="p-4 h-[320px] overflow-y-auto space-y-4">
+                        {messages.length === 0 ? (
+                          <div className="h-full flex flex-col items-center justify-center text-gray-500">
+                            <MessageCircle size={40} className="mb-3 opacity-30" />
+                            <p className="text-center text-sm">Ask any question about the lecture content</p>
+                          </div>
+                        ) : (
+                          messages.map((msg, idx) => (
+                            <div key={idx} className={`flex gap-3 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                              {msg.role === 'assistant' && (
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-r from-purple-500 to-blue-500 flex items-center justify-center flex-shrink-0">
+                                  <Bot size={16} className="text-white" />
+                                </div>
+                              )}
+                              <div className={`max-w-[80%] rounded-2xl px-4 py-2 ${msg.role === 'user' ? 'bg-blue-600 text-white' : 'bg-gray-700 text-gray-200'}`}>
+                                <div className="text-sm leading-relaxed whitespace-pre-wrap">
+                                  {msg.content ? renderMarkdown(msg.content) : <Loader2 size={16} className="animate-spin" />}
+                                </div>
+                              </div>
+                              {msg.role === 'user' && (
+                                <div className="w-8 h-8 rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 flex items-center justify-center flex-shrink-0">
+                                  <User size={16} className="text-white" />
+                                </div>
+                              )}
+                            </div>
+                          ))
+                        )}
+                      </div>
+
+                      {/* Input */}
+                      <div className="p-4 border-t border-gray-700 bg-gray-800/50">
+                        <div className="flex gap-2">
+                          <input
+                            type="text"
+                            value={inputMessage}
+                            onChange={(e) => setInputMessage(e.target.value)}
+                            onKeyDown={handleKeyPress}
+                            placeholder="Ask a question about the lecture..."
+                            className="flex-1 px-4 py-3 rounded-xl bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                            disabled={isAskLoading}
+                          />
+                          <button
+                            onClick={askQuestion}
+                            disabled={!inputMessage.trim() || isAskLoading}
+                            className="px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {isAskLoading ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
+                          </button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        </section>
+          </section>
 
-        {/* How to Use AI Assistant */}
-        <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
-          <h2 className="font-semibold mb-4 flex items-center gap-2">
-            <Sparkles size={18} className="text-purple-400" />
-            How to Use AI Assistant
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm text-gray-400">
-            <div className="flex gap-3">
-              <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-400 font-bold shrink-0">1</div>
-              <p>Click <strong className="text-white">"Get Summary"</strong> to generate an AI-powered summary of your lecture content</p>
-            </div>
-            <div className="flex gap-3">
-              <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 font-bold shrink-0">2</div>
-              <p>Use the <strong className="text-white">chat</strong> to ask specific questions about the lecture material</p>
-            </div>
-            <div className="flex gap-3">
-              <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold shrink-0">3</div>
-              <p>Content is provided by your <strong className="text-white">teacher</strong> through uploaded slides and live transcriptions</p>
-            </div>
-          </div>
-        </div>
-      </main>
-
-      {/* Quiz Popup Modal */}
-      {showQuizPopup && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-gray-900 rounded-2xl border border-indigo-500/50 shadow-2xl shadow-indigo-500/20 w-full max-w-2xl mx-4 overflow-hidden animate-in zoom-in-95 duration-300">
-            {/* Header */}
-            <div className="bg-gradient-to-r from-indigo-600/30 to-purple-600/30 px-6 py-4 border-b border-gray-700 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-indigo-500/20 rounded-lg">
-                  <Brain size={22} className="text-indigo-400" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-white text-lg flex items-center gap-2">
-                    Understanding Check
-                    <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 text-[10px] font-medium rounded-full border border-purple-500/30">
-                      AI Generated
-                    </span>
-                  </h3>
-                  <p className="text-sm text-gray-400">Question {currentQuizIndex + 1} of {quizQuestions.length}</p>
-                </div>
+          {/* How to Use AI Assistant */}
+          <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
+            <h2 className="font-semibold mb-4 flex items-center gap-2">
+              <Sparkles size={18} className="text-purple-400" />
+              How to Use AI Assistant
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 text-sm text-gray-400">
+              <div className="flex gap-3">
+                <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-400 font-bold shrink-0">1</div>
+                <p>Click <strong className="text-white">"Get Summary"</strong> to generate an AI-powered summary of your lecture content</p>
               </div>
-              <button
-                onClick={closeQuiz}
-                className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
-              >
-                <X size={20} className="text-gray-400" />
-              </button>
-            </div>
-
-            {/* Progress Bar */}
-            <div className="w-full bg-gray-800 h-1">
-              <div
-                className="bg-gradient-to-r from-indigo-500 to-purple-500 h-full transition-all duration-500"
-                style={{ width: `${((currentQuizIndex + 1) / quizQuestions.length) * 100}%` }}
-              />
-            </div>
-
-            {/* Question Content */}
-            <div className="p-6">
-              {/* Topic Badge */}
-              <div className="mb-4">
-                <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${currentQuestion.topic === 'Machine Learning' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
-                  currentQuestion.topic === 'Data Structures' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
-                    currentQuestion.topic === 'Neural Networks' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' :
-                      currentQuestion.topic === 'Algorithms' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' :
-                        'bg-pink-500/20 text-pink-400 border border-pink-500/30'
-                  }`}>
-                  {currentQuestion.topic}
-                </span>
+              <div className="flex gap-3">
+                <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 font-bold shrink-0">2</div>
+                <p>Use the <strong className="text-white">chat</strong> to ask specific questions about the lecture material</p>
               </div>
+              <div className="flex gap-3">
+                <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold shrink-0">3</div>
+                <p>Content is provided by your <strong className="text-white">teacher</strong> through uploaded slides and live transcriptions</p>
+              </div>
+            </div>
+          </div>
+        </main>
 
-              {/* Question */}
-              <h4 className="text-xl font-semibold text-white mb-6">{currentQuestion.question}</h4>
-
-              {/* Answer Options */}
-              <div className="space-y-3">
-                {currentQuestion.options.map((option, idx) => {
-                  const isSelected = selectedAnswer === idx;
-                  const isCorrect = idx === currentQuestion.correctAnswer;
-                  const showResult = hasSubmitted;
-
-                  let optionClass = 'bg-gray-800 border-gray-700 hover:border-indigo-500/50 hover:bg-gray-700/50';
-
-                  if (isSelected && !showResult) {
-                    optionClass = 'bg-indigo-500/20 border-indigo-500 ring-2 ring-indigo-500/30';
-                  } else if (showResult && isCorrect) {
-                    optionClass = 'bg-emerald-500/20 border-emerald-500';
-                  } else if (showResult && isSelected && !isCorrect) {
-                    optionClass = 'bg-red-500/20 border-red-500';
-                  }
-
-                  return (
-                    <button
-                      key={idx}
-                      onClick={() => !hasSubmitted && setSelectedAnswer(idx)}
-                      disabled={hasSubmitted}
-                      className={`w-full text-left px-4 py-3 rounded-xl border transition-all flex items-center gap-3 ${optionClass} ${hasSubmitted ? 'cursor-default' : 'cursor-pointer'}`}
-                    >
-                      <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${showResult && isCorrect ? 'bg-emerald-500 text-white' :
-                        showResult && isSelected && !isCorrect ? 'bg-red-500 text-white' :
-                          isSelected ? 'bg-indigo-500 text-white' :
-                            'bg-gray-700 text-gray-300'
-                        }`}>
-                        {showResult && isCorrect ? <CheckCircle2 size={16} /> :
-                          showResult && isSelected && !isCorrect ? <X size={16} /> :
-                            String.fromCharCode(65 + idx)}
+        {/* Quiz Popup Modal */}
+        {showQuizPopup && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-gray-900 rounded-2xl border border-indigo-500/50 shadow-2xl shadow-indigo-500/20 w-full max-w-2xl mx-4 overflow-hidden animate-in zoom-in-95 duration-300">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-indigo-600/30 to-purple-600/30 px-6 py-4 border-b border-gray-700 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-indigo-500/20 rounded-lg">
+                    <Brain size={22} className="text-indigo-400" />
+                  </div>
+                  <div>
+                    <h3 className="font-bold text-white text-lg flex items-center gap-2">
+                      Understanding Check
+                      <span className="px-2 py-0.5 bg-purple-500/20 text-purple-400 text-[10px] font-medium rounded-full border border-purple-500/30">
+                        AI Generated
                       </span>
-                      <span className={`flex-1 ${showResult && isCorrect ? 'text-emerald-400 font-medium' : 'text-gray-200'}`}>
-                        {option}
-                      </span>
-                    </button>
-                  );
-                })}
+                    </h3>
+                    <p className="text-sm text-gray-400">Question {currentQuizIndex + 1} of {quizQuestions.length}</p>
+                  </div>
+                </div>
+                <button
+                  onClick={closeQuiz}
+                  className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+                >
+                  <X size={20} className="text-gray-400" />
+                </button>
               </div>
 
-              {/* Feedback Message */}
-              {hasSubmitted && (
-                <div className={`mt-6 p-4 rounded-xl flex items-start gap-3 animate-in slide-in-from-bottom-2 duration-300 ${selectedAnswer === currentQuestion.correctAnswer
-                  ? 'bg-emerald-500/10 border border-emerald-500/30'
-                  : 'bg-red-500/10 border border-red-500/30'
-                  }`}>
-                  {selectedAnswer === currentQuestion.correctAnswer ? (
-                    <>
-                      <CheckCircle2 size={20} className="text-emerald-400 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-semibold text-emerald-400">Correct!</p>
-                        <p className="text-sm text-gray-400">Great job! You understand this concept well.</p>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <AlertCircle size={20} className="text-red-400 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-semibold text-red-400">Not quite right</p>
-                        <p className="text-sm text-gray-400">
-                          The correct answer is: <strong className="text-white">{currentQuestion.options[currentQuestion.correctAnswer]}</strong>
-                        </p>
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
+              {/* Progress Bar */}
+              <div className="w-full bg-gray-800 h-1">
+                <div
+                  className="bg-gradient-to-r from-indigo-500 to-purple-500 h-full transition-all duration-500"
+                  style={{ width: `${((currentQuizIndex + 1) / quizQuestions.length) * 100}%` }}
+                />
+              </div>
 
-            {/* Footer Actions */}
-            <div className="px-6 py-4 border-t border-gray-700 bg-gray-800/50 flex justify-end gap-3">
-              {!hasSubmitted ? (
-                <button
-                  onClick={submitQuizAnswer}
-                  disabled={selectedAnswer === null}
-                  className={`px-6 py-2.5 rounded-lg font-medium transition-all flex items-center gap-2 ${selectedAnswer !== null
-                    ? 'bg-indigo-600 text-white hover:bg-indigo-700'
-                    : 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                    }`}
-                >
-                  Submit Answer
-                </button>
-              ) : (
-                <button
-                  onClick={nextQuestion}
-                  className="px-6 py-2.5 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-all flex items-center gap-2"
-                >
-                  {currentQuizIndex < quizQuestions.length - 1 ? 'Next Question' : 'Finish Quiz'}
-                </button>
-              )}
+              {/* Question Content */}
+              <div className="p-6">
+                {/* Topic Badge */}
+                <div className="mb-4">
+                  <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${currentQuestion.topic === 'Machine Learning' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
+                    currentQuestion.topic === 'Data Structures' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
+                      currentQuestion.topic === 'Neural Networks' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' :
+                        currentQuestion.topic === 'Algorithms' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' :
+                          'bg-pink-500/20 text-pink-400 border border-pink-500/30'
+                    }`}>
+                    {currentQuestion.topic}
+                  </span>
+                </div>
+
+                {/* Question */}
+                <h4 className="text-xl font-semibold text-white mb-6">{currentQuestion.question}</h4>
+
+                {/* Answer Options */}
+                <div className="space-y-3">
+                  {currentQuestion.options.map((option, idx) => {
+                    const isSelected = selectedAnswer === idx;
+                    const isCorrect = idx === currentQuestion.correctAnswer;
+                    const showResult = hasSubmitted;
+
+                    let optionClass = 'bg-gray-800 border-gray-700 hover:border-indigo-500/50 hover:bg-gray-700/50';
+
+                    if (isSelected && !showResult) {
+                      optionClass = 'bg-indigo-500/20 border-indigo-500 ring-2 ring-indigo-500/30';
+                    } else if (showResult && isCorrect) {
+                      optionClass = 'bg-emerald-500/20 border-emerald-500';
+                    } else if (showResult && isSelected && !isCorrect) {
+                      optionClass = 'bg-red-500/20 border-red-500';
+                    }
+
+                    return (
+                      <button
+                        key={idx}
+                        onClick={() => !hasSubmitted && setSelectedAnswer(idx)}
+                        disabled={hasSubmitted}
+                        className={`w-full text-left px-4 py-3 rounded-xl border transition-all flex items-center gap-3 ${optionClass} ${hasSubmitted ? 'cursor-default' : 'cursor-pointer'}`}
+                      >
+                        <span className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0 ${showResult && isCorrect ? 'bg-emerald-500 text-white' :
+                          showResult && isSelected && !isCorrect ? 'bg-red-500 text-white' :
+                            isSelected ? 'bg-indigo-500 text-white' :
+                              'bg-gray-700 text-gray-300'
+                          }`}>
+                          {showResult && isCorrect ? <CheckCircle2 size={16} /> :
+                            showResult && isSelected && !isCorrect ? <X size={16} /> :
+                              String.fromCharCode(65 + idx)}
+                        </span>
+                        <span className={`flex-1 ${showResult && isCorrect ? 'text-emerald-400 font-medium' : 'text-gray-200'}`}>
+                          {option}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Feedback Message */}
+                {hasSubmitted && (
+                  <div className={`mt-6 p-4 rounded-xl flex items-start gap-3 animate-in slide-in-from-bottom-2 duration-300 ${selectedAnswer === currentQuestion.correctAnswer
+                    ? 'bg-emerald-500/10 border border-emerald-500/30'
+                    : 'bg-red-500/10 border border-red-500/30'
+                    }`}>
+                    {selectedAnswer === currentQuestion.correctAnswer ? (
+                      <>
+                        <CheckCircle2 size={20} className="text-emerald-400 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-semibold text-emerald-400">Correct!</p>
+                          <p className="text-sm text-gray-400">Great job! You understand this concept well.</p>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <AlertCircle size={20} className="text-red-400 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="font-semibold text-red-400">Not quite right</p>
+                          <p className="text-sm text-gray-400">
+                            The correct answer is: <strong className="text-white">{currentQuestion.options[currentQuestion.correctAnswer]}</strong>
+                          </p>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Footer Actions */}
+              <div className="px-6 py-4 border-t border-gray-700 bg-gray-800/50 flex justify-end gap-3">
+                {!hasSubmitted ? (
+                  <button
+                    onClick={submitQuizAnswer}
+                    disabled={selectedAnswer === null}
+                    className={`px-6 py-2.5 rounded-lg font-medium transition-all flex items-center gap-2 ${selectedAnswer !== null
+                      ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                      : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                      }`}
+                  >
+                    Submit Answer
+                  </button>
+                ) : (
+                  <button
+                    onClick={nextQuestion}
+                    className="px-6 py-2.5 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-all flex items-center gap-2"
+                  >
+                    {currentQuizIndex < quizQuestions.length - 1 ? 'Next Question' : 'Finish Quiz'}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+      </div>
+    </RoleGuard>
   );
 }
