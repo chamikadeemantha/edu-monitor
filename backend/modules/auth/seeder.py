@@ -38,9 +38,36 @@ def seed_users(db: Session):
                 username=user_data["username"],
                 email=user_data["email"],
                 password_hash=hashed_password,
-                role=user_data["role"]
+                role=user_data["role"],
+                is_approved=True # Default users are auto-approved
             )
             db.add(new_user)
+            db.flush() # Flush to get ID
+
+            # Create Profiles
+            if user_data["role"] == models.UserRole.TEACHER:
+                profile = models.TeacherProfile(
+                    user_id=new_user.id,
+                    teacher_id="TCH2024001",
+                    full_name="Default Teacher",
+                    position="Professor",
+                    department="Computer Science",
+                    phone_number="123-456-7890",
+                    specialization="A.I.",
+                    years_of_experience=5
+                )
+                db.add(profile)
+            elif user_data["role"] == models.UserRole.STUDENT:
+                profile = models.StudentProfile(
+                    user_id=new_user.id,
+                    student_id="STU2024001",
+                    full_name="Default Student",
+                    age=20,
+                    gender="Male",
+                    phone_number="098-765-4321",
+                    major="Computer Science"
+                )
+                db.add(profile)
         else:
             logger.info(f"User already exists: {user_data['username']}")
     

@@ -18,6 +18,7 @@ export const metadata: Metadata = {
 };
 
 import { AuthProvider } from "@/context/AuthContext";
+import Navbar from "@/components/Navbar";
 
 export default function RootLayout({
   children,
@@ -31,7 +32,12 @@ export default function RootLayout({
         suppressHydrationWarning
       >
         <AuthProvider>
-          {children}
+          <div className="flex flex-col min-h-screen">
+            <Navbar />
+            <div className="flex-1">
+              {children}
+            </div>
+          </div>
         </AuthProvider>
       </body>
     </html>

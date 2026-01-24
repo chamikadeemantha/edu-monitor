@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useAuth, UserRole } from "@/context/AuthContext";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { BookOpen, KeyRound, Mail, AlertCircle } from "lucide-react";
 
 export default function LoginPage() {
@@ -140,6 +141,25 @@ export default function LoginPage() {
                         {loading ? "Signing in..." : "Sign In"}
                     </button>
                 </form>
+
+                <div className="mt-8 pt-6 border-t border-slate-700">
+                    <p className="text-slate-400 text-center text-sm mb-4">Don't have an account?</p>
+                    <div className="flex gap-4 justify-center">
+                        <Link
+                            href="/register/student"
+                            className="text-sm font-medium text-blue-400 hover:text-blue-300 transition-colors"
+                        >
+                            Student Registration
+                        </Link>
+                        <span className="text-slate-600">|</span>
+                        <Link
+                            href="/register/teacher"
+                            className="text-sm font-medium text-blue-400 hover:text-blue-300 transition-colors"
+                        >
+                            Teacher Registration
+                        </Link>
+                    </div>
+                </div>
             </div>
         </div>
     );
