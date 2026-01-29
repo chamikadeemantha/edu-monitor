@@ -11,9 +11,28 @@ export enum UserRole {
 }
 
 interface User {
+    id: number;
     username: string;
     email: string;
     role: UserRole;
+    is_approved: boolean;
+    student_profile?: {
+        student_id: string;
+        full_name: string;
+        age: number;
+        gender: string;
+        phone_number: string;
+        major: string;
+    };
+    teacher_profile?: {
+        teacher_id: string;
+        full_name: string;
+        position: string;
+        department: string;
+        phone_number: string;
+        specialization: string;
+        years_of_experience: number;
+    };
 }
 
 interface AuthContextType {
