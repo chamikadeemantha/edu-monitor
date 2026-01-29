@@ -2,7 +2,7 @@ from sqlalchemy import Column, Integer, String, DateTime, Enum
 from sqlalchemy.sql import func
 import enum
 from sqlalchemy.orm import relationship
-from sqlalchemy import ForeignKey, Boolean
+from sqlalchemy import ForeignKey, Boolean, LargeBinary
 from database import Base
 
 class UserRole(str, enum.Enum):
@@ -35,6 +35,7 @@ class StudentProfile(Base):
     gender = Column(String)
     phone_number = Column(String)
     major = Column(String)
+    profile_picture = Column(LargeBinary, nullable=True)
 
     user = relationship("User", back_populates="student_profile")
 
@@ -50,5 +51,6 @@ class TeacherProfile(Base):
     phone_number = Column(String)
     specialization = Column(String)
     years_of_experience = Column(Integer)
+    profile_picture = Column(LargeBinary, nullable=True)
 
     user = relationship("User", back_populates="teacher_profile")

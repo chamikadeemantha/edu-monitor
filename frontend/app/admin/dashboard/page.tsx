@@ -12,7 +12,15 @@ interface PendingUser {
     email: string;
     role: string;
     is_approved: boolean;
-    created_at: string;
+    student_profile?: {
+        full_name: string;
+        student_id: string;
+    };
+    teacher_profile?: {
+        full_name: string;
+        teacher_id: string;
+        department: string;
+    };
 }
 
 export default function AdminDashboard() {
@@ -109,15 +117,43 @@ export default function AdminDashboard() {
                                     <div className="space-y-4">
                                         {pendingUsers.map((pUser) => (
                                             <div key={pUser.id} className="bg-slate-900/50 p-4 rounded-xl border border-slate-700/50 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition hover:border-slate-600">
-                                                <div>
-                                                    <div className="font-semibold text-lg">{pUser.username}</div>
-                                                    <div className="text-sm text-slate-400">{pUser.email}</div>
-                                                    <div className="mt-1 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-800 text-slate-300 border border-slate-700 capitalize">
-                                                        {pUser.role}
+                                                <div className="flex items-start gap-4">
+                                                    {/* Profile Picture Thumbnail */}
+                                                    <div className="w-12 h-12 rounded-full overflow-hidden bg-slate-700 flex-shrink-0">
+                                                        <img
+                                                            src={`http://localhost:8000/api/auth/users/${pUser.id}/profile-picture`}
+                                                            alt={pUser.username}
+                                                            className="w-full h-full object-cover"
+                                                            onError={(e) => { (e.target as HTMLImageElement).src = 'https://via.placeholder.com/150?text=No+Img'; }}
+                                                        />
+                                                    </div>
+                                                    <div>
+                                                        <div className="font-semibold text-lg flex items-center gap-2">
+                                                            {pUser.username}
+                                                            <span className="text-xs font-normal text-slate-500">
+                                                                {(pUser.student_profile?.full_name || pUser.teacher_profile?.full_name) ? `(${pUser.student_profile?.full_name || pUser.teacher_profile?.full_name})` : ''}
+                                                            </span>
+                                                        </div>
+                                                        <div className="text-sm text-slate-400">{pUser.email}</div>
+
+                                                        {/* Role Badge */}
+                                                        <div className="mt-1 flex items-center gap-2">
+                                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${pUser.role === 'student' ? 'bg-blue-900/30 text-blue-400 border-blue-800' : 'bg-emerald-900/30 text-emerald-400 border-emerald-800'
+                                                                } capitalize`}>
+                                                                {pUser.role}
+                                                            </span>
+                                                            {/* Extra Info based on role */}
+                                                            {pUser.role === 'student' && pUser.student_profile && (
+                                                                <span className="text-xs text-slate-500">ID: {pUser.student_profile.student_id}</span>
+                                                            )}
+                                                            {pUser.role === 'teacher' && pUser.teacher_profile && (
+                                                                <span className="text-xs text-slate-500">Dept: {pUser.teacher_profile.department}</span>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 </div>
 
-                                                <div className="flex items-center gap-2 w-full sm:w-auto">
+                                                <div className="flex items-center gap-2 w-full sm:w-auto self-end sm:self-center">
                                                     <button
                                                         onClick={() => approveUser(pUser.id)}
                                                         className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition"
@@ -125,7 +161,6 @@ export default function AdminDashboard() {
                                                         <CheckCircle className="w-4 h-4" />
                                                         Approve
                                                     </button>
-                                                    {/* Optional: Add Reject Button Logic later */}
                                                 </div>
                                             </div>
                                         ))}

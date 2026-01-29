@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
@@ -12,19 +12,31 @@ router = APIRouter(
 )
 
 @router.post("/register/student", response_model=schemas.UserResponse)
-def register_student(user_data: schemas.StudentRegistration, db: Session = Depends(get_db)):
+async def register_student(
+    email: str = Form(...),
+    username: str = Form(...),
+    password: str = Form(...),
+    student_id: str = Form(...),
+    full_name: str = Form(...),
+    age: int = Form(...),
+    gender: str = Form(...),
+    phone_number: str = Form(...),
+    major: str = Form(...),
+    profile_picture: UploadFile = File(None),
+    db: Session = Depends(get_db)
+):
     # Check if email or username exists
     db_user = db.query(models.User).filter(
-        or_(models.User.email == user_data.email, models.User.username == user_data.username)
+        or_(models.User.email == email, models.User.username == username)
     ).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Email or Username already registered")
     
-    hashed_password = utils.get_password_hash(user_data.password)
+    hashed_password = utils.get_password_hash(password)
     # Create User
     new_user = models.User(
-        email=user_data.email,
-        username=user_data.username,
+        email=email,
+        username=username,
         password_hash=hashed_password,
         role=models.UserRole.STUDENT,
         is_approved=False # Requires admin approval
@@ -32,15 +44,21 @@ def register_student(user_data: schemas.StudentRegistration, db: Session = Depen
     db.add(new_user)
     db.flush() # Flush to get the new_user.id
     
+    # Process profile picture
+    profile_picture_data = None
+    if profile_picture:
+        profile_picture_data = await profile_picture.read()
+
     # Create Student Profile
     new_profile = models.StudentProfile(
         user_id=new_user.id,
-        student_id=user_data.student_id,
-        full_name=user_data.full_name,
-        age=user_data.age,
-        gender=user_data.gender,
-        phone_number=user_data.phone_number,
-        major=user_data.major
+        student_id=student_id,
+        full_name=full_name,
+        age=age,
+        gender=gender,
+        phone_number=phone_number,
+        major=major,
+        profile_picture=profile_picture_data
     )
     db.add(new_profile)
     
@@ -49,19 +67,32 @@ def register_student(user_data: schemas.StudentRegistration, db: Session = Depen
     return new_user
 
 @router.post("/register/teacher", response_model=schemas.UserResponse)
-def register_teacher(user_data: schemas.TeacherRegistration, db: Session = Depends(get_db)):
+async def register_teacher(
+    email: str = Form(...),
+    username: str = Form(...),
+    password: str = Form(...),
+    teacher_id: str = Form(...),
+    full_name: str = Form(...),
+    position: str = Form(...),
+    department: str = Form(...),
+    phone_number: str = Form(...),
+    specialization: str = Form(...),
+    years_of_experience: int = Form(...),
+    profile_picture: UploadFile = File(None),
+    db: Session = Depends(get_db)
+):
     # Check if email or username exists
     db_user = db.query(models.User).filter(
-        or_(models.User.email == user_data.email, models.User.username == user_data.username)
+        or_(models.User.email == email, models.User.username == username)
     ).first()
     if db_user:
         raise HTTPException(status_code=400, detail="Email or Username already registered")
     
-    hashed_password = utils.get_password_hash(user_data.password)
+    hashed_password = utils.get_password_hash(password)
     # Create User
     new_user = models.User(
-        email=user_data.email,
-        username=user_data.username,
+        email=email,
+        username=username,
         password_hash=hashed_password,
         role=models.UserRole.TEACHER,
         is_approved=False # Requires admin approval
@@ -69,22 +100,43 @@ def register_teacher(user_data: schemas.TeacherRegistration, db: Session = Depen
     db.add(new_user)
     db.flush()
     
+    # Process profile picture
+    profile_picture_data = None
+    if profile_picture:
+        profile_picture_data = await profile_picture.read()
+
     # Create Teacher Profile
     new_profile = models.TeacherProfile(
         user_id=new_user.id,
-        teacher_id=user_data.teacher_id,
-        full_name=user_data.full_name,
-        position=user_data.position,
-        department=user_data.department,
-        phone_number=user_data.phone_number,
-        specialization=user_data.specialization,
-        years_of_experience=user_data.years_of_experience
+        teacher_id=teacher_id,
+        full_name=full_name,
+        position=position,
+        department=department,
+        phone_number=phone_number,
+        specialization=specialization,
+        years_of_experience=years_of_experience,
+        profile_picture=profile_picture_data
     )
     db.add(new_profile)
     
     db.commit()
     db.refresh(new_user)
     return new_user
+
+@router.get("/users/{user_id}/profile-picture")
+def get_profile_picture(user_id: int, db: Session = Depends(get_db)):
+    # Check student profile
+    student_profile = db.query(models.StudentProfile).filter(models.StudentProfile.user_id == user_id).first()
+    if student_profile and student_profile.profile_picture:
+        return Response(content=student_profile.profile_picture, media_type="image/jpeg")
+
+    # Check teacher profile
+    teacher_profile = db.query(models.TeacherProfile).filter(models.TeacherProfile.user_id == user_id).first()
+    if teacher_profile and teacher_profile.profile_picture:
+        return Response(content=teacher_profile.profile_picture, media_type="image/jpeg")
+    
+    # Return a default placeholder or 404
+    raise HTTPException(status_code=404, detail="Profile picture not found")
 
 @router.post("/token", response_model=schemas.Token)
 def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):

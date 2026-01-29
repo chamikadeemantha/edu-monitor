@@ -144,19 +144,18 @@ export default function LoginPage() {
 
                 <div className="mt-8 pt-6 border-t border-slate-700">
                     <p className="text-slate-400 text-center text-sm mb-4">Don't have an account?</p>
-                    <div className="flex gap-4 justify-center">
+                    <div className="flex flex-col gap-2 items-center">
                         <Link
                             href="/register/student"
                             className="text-sm font-medium text-blue-400 hover:text-blue-300 transition-colors"
                         >
-                            Student Registration
+                            Register as Student
                         </Link>
-                        <span className="text-slate-600">|</span>
                         <Link
                             href="/register/teacher"
-                            className="text-sm font-medium text-blue-400 hover:text-blue-300 transition-colors"
+                            className="text-sm font-medium text-emerald-400 hover:text-emerald-300 transition-colors"
                         >
-                            Teacher Registration
+                            Register as Teacher
                         </Link>
                     </div>
                 </div>
