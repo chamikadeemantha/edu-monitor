@@ -6,6 +6,13 @@ import ctypes
 # Fix for Protobuf conflict (MediaPipe vs others)
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
+# Fix for tokenizers parallelism crash on Windows (WinError 6)
+# When YOLO/mediapipe inference threads are running, the tokenizers Rust
+# threads cause handle conflicts. Disabling parallelism avoids this.
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["OMP_NUM_THREADS"] = "1"
+os.environ["MKL_NUM_THREADS"] = "1"
+
 # Attempt to force-load the newer sqlite3.dll from specific paths
 # This trick helps when the OS loader insists on using the system python's sqlite3.dll
 try:
@@ -46,8 +53,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Import performance module routes
-from modules.performance.routes import router as performance_router
+# Import performance module routes (graceful if chromadb is broken)
+try:
+    from modules.performance.routes import router as performance_router
+except Exception as e:
+    logger.warning(f"⚠️  Performance module failed to load: {e}")
+    logger.warning("   - Upload, Summary, and Q&A features will be disabled")
+    performance_router = None
 
 # Teacher behavior API
 try:
@@ -110,7 +122,8 @@ app.add_middleware(
 )
 
 # Register routers
-app.include_router(performance_router)
+if performance_router is not None:
+    app.include_router(performance_router)
 
 
 @app.get("/")

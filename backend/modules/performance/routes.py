@@ -9,12 +9,16 @@ from pydantic import BaseModel
 from typing import Optional
 import json
 import logging
+import os
+import shutil
+import subprocess
+import sys
 
 from .document_processor import process_document
 from .vector_store import (
-    add_documents, 
-    search_similar, 
-    get_all_content, 
+    add_documents,
+    search_similar,
+    get_all_content,
     get_collection_stats,
     clear_collection
 )
@@ -27,7 +31,6 @@ from .llm_service import (
     get_available_models
 )
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/performance", tags=["performance"])
@@ -73,8 +76,8 @@ async def health_check():
 async def upload_lecture_slides(file: UploadFile = File(...)):
     """
     Upload lecture slides (PDF) for processing and storage.
-    Extracts text, chunks it, and stores embeddings in vector DB.
-    This works WITHOUT Ollama - only embeddings are needed.
+    Runs in a SEPARATE PROCESS to avoid [WinError 6] crashes on Windows
+    when ChromaDB (ONNX) conflicts with PyTorch/TensorFlow threads.
     """
     # Validate file type
     if not file.filename.lower().endswith(('.pdf', '.txt')):
@@ -84,40 +87,54 @@ async def upload_lecture_slides(file: UploadFile = File(...)):
         )
     
     try:
-        # Read file content
-        content = await file.read()
+        # Create a temp file to pass to the worker
+        temp_dir = os.path.join(os.path.dirname(__file__), "temp")
+        os.makedirs(temp_dir, exist_ok=True)
+        temp_path = os.path.join(temp_dir, file.filename)
         
-        # Process document into chunks
-        chunks = process_document(content, file.filename)
+        with open(temp_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
         
-        if not chunks:
+        # Run worker script in separate process
+        worker_script = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "ingest_worker.py")
+        
+        result = subprocess.run(
+            [sys.executable, worker_script, temp_path, file.filename],
+            capture_output=True,
+            text=True
+        )
+        
+        if result.returncode != 0:
+            logger.error(f"Ingest worker failed: {result.stderr}")
+            raise RuntimeError(f"Ingestion process failed: {result.stderr}")
+            
+        # Parse result
+        try:
+            output = json.loads(result.stdout)
+            if not output.get("success"):
+                error_msg = output.get("error", "Unknown ingestion error")
+                logger.error(f"Ingest failed: {error_msg}")
+                raise RuntimeError(error_msg)
+                
+            num_stored = output.get("chunks_stored", 0)
+            sample_chunk = output.get("sample_chunk")
+            
+            logger.info(f"Uploaded and stored {num_stored} chunks from {file.filename}")
+            
             return StatusResponse(
-                success=False,
-                message="No text content could be extracted from the file"
+                success=True,
+                message=f"Successfully processed and stored {num_stored} content chunks",
+                data={
+                    "filename": file.filename,
+                    "chunks_stored": num_stored,
+                    "sample_chunk": sample_chunk
+                }
             )
-        
-        # Store in vector database (uses sentence-transformers, not Ollama)
-        num_stored = add_documents(
-            texts=chunks,
-            source="slides",
-            metadata={"filename": file.filename}
-        )
-        
-        logger.info(f"Uploaded and stored {num_stored} chunks from {file.filename}")
-        
-        return StatusResponse(
-            success=True,
-            message=f"Successfully processed and stored {num_stored} content chunks",
-            data={
-                "filename": file.filename,
-                "chunks_stored": num_stored,
-                "sample_chunk": chunks[0][:200] + "..." if chunks else None
-            }
-        )
-    
-    except ValueError as e:
-        logger.error(f"Upload validation error: {e}")
-        raise HTTPException(status_code=400, detail=str(e))
+            
+        except json.JSONDecodeError:
+            logger.error(f"Invalid JSON from worker: {result.stdout}")
+            raise RuntimeError(f"Worker returned invalid response: {result.stdout}")
+
     except Exception as e:
         logger.error(f"Upload processing error: {e}")
         raise HTTPException(status_code=500, detail=f"Processing error: {str(e)}")
