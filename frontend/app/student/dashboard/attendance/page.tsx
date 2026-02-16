@@ -2,9 +2,12 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, UserCheck, BarChart3 } from "lucide-react";
+import { ArrowLeft, UserCheck, BarChart3, ClipboardList } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
+
+// ✅ Centralized route (so you can change in one place later)
+const SURVEY_ROUTE = "/student/dashboard/attendance/survey";
 
 type MarkRes = {
   ok: boolean;
@@ -13,7 +16,6 @@ type MarkRes = {
   module_name?: string;
   marked_at?: string;
   remaining_slots?: number;
-  // optional if backend returns it later
   max_students?: number;
 };
 
@@ -26,7 +28,6 @@ export default function StudentAttendancePage() {
   const [success, setSuccess] = useState(false);
   const [data, setData] = useState<MarkRes | null>(null);
 
-  // ⭐ Local “demo” history for visualization (until DB is connected)
   const [history, setHistory] = useState<
     { module_code: string; module_name: string; marked_at: string }[]
   >([]);
@@ -60,7 +61,6 @@ export default function StudentAttendancePage() {
       setData(json);
       setPin("");
 
-      // ⭐ Add to local history (for chart)
       if (json.module_code && json.module_name && json.marked_at) {
         setHistory((prev) => [
           { module_code: json.module_code!, module_name: json.module_name!, marked_at: json.marked_at! },
@@ -75,7 +75,6 @@ export default function StudentAttendancePage() {
     }
   }
 
-  // ✅ Count attendance per module (from local history)
   const moduleStats = useMemo(() => {
     const map = new Map<string, { module_name: string; count: number }>();
     for (const h of history) {
@@ -91,9 +90,9 @@ export default function StudentAttendancePage() {
     }));
   }, [history]);
 
-  // ✅ Progress calc (if backend gives max_students later, else just show remaining)
-  const maxStudents = data?.max_students ?? undefined; // optional
+  const maxStudents = data?.max_students ?? undefined;
   const remaining = typeof data?.remaining_slots === "number" ? data.remaining_slots : undefined;
+
   const markedCount = useMemo(() => {
     if (typeof maxStudents === "number" && typeof remaining === "number") {
       return Math.max(0, maxStudents - remaining);
@@ -119,39 +118,68 @@ export default function StudentAttendancePage() {
           >
             <ArrowLeft size={20} />
           </Link>
-          <h2 className="text-lg font-semibold text-gray-200">
-            Student Attendance
-          </h2>
+          <h2 className="text-lg font-semibold text-gray-200">Student Attendance</h2>
         </div>
-        <div className="flex items-center gap-4">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-          <span className="text-sm text-emerald-400">System Online</span>
+
+        {/* ============================================================
+           ✅✅✅ TAKE SURVEY BUTTON (ROUTE FIXED)
+           This button should go to:
+           http://localhost:3000/student/dashboard/attendance/survey
+           If you ever change the route, update SURVEY_ROUTE only.
+           ============================================================ */}
+        <div className="flex items-center gap-3">
+          <Link
+            href={SURVEY_ROUTE}
+            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            title="Take Attendance Factors Survey"
+          >
+            <ClipboardList size={18} />
+            Take Survey
+          </Link>
+
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span className="text-sm text-emerald-400">System Online</span>
+          </div>
         </div>
       </header>
 
       <main className="max-w-4xl mx-auto p-8">
-        <header className="mb-8">
-          <h1 className="text-3xl font-bold mb-2 flex items-center gap-2">
-            <UserCheck className="text-emerald-600" />
-            Attendance
-          </h1>
-          <p className="text-gray-400">
-            Enter the 6-digit PIN provided by your lecturer to mark attendance.
-          </p>
+        <header className="mb-8 flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-3xl font-bold mb-2 flex items-center gap-2">
+              <UserCheck className="text-emerald-600" />
+              Attendance
+            </h1>
+            <p className="text-gray-400">
+              Enter the 6-digit PIN provided by your lecturer to mark attendance.
+            </p>
+          </div>
+
+          {/* ============================================================
+             ✅✅✅ SECOND TAKE SURVEY BUTTON (ROUTE FIXED)
+             ============================================================ */}
+          <Link
+            href={SURVEY_ROUTE}
+            className="hidden sm:inline-flex items-center gap-2 rounded-xl border border-gray-700 bg-gray-800 px-4 py-2 text-sm font-semibold text-gray-200 hover:bg-gray-700"
+          >
+            <ClipboardList size={18} className="text-blue-400" />
+            Take Attendance Survey
+          </Link>
         </header>
 
         {msg && (
           <div
-            className={`mb-6 rounded-lg border px-4 py-3 text-sm ${success
-              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-              : "border-red-200 bg-red-50 text-red-800"
-              }`}
+            className={`mb-6 rounded-lg border px-4 py-3 text-sm ${
+              success
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : "border-red-200 bg-red-50 text-red-800"
+            }`}
           >
             {msg}
           </div>
         )}
 
-        {/* FORM */}
         <div className="bg-gray-800 rounded-xl border border-gray-700 shadow-sm p-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <label className="text-sm font-medium text-gray-300">
@@ -184,7 +212,22 @@ export default function StudentAttendancePage() {
             {loading ? "Submitting..." : "Submit Attendance"}
           </button>
 
-          {/* LAST MARK DETAILS */}
+          {/* ============================================================
+             ✅✅✅ THIRD TAKE SURVEY BUTTON (ROUTE FIXED)
+             ============================================================ */}
+          <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 text-sm">
+            <div className="text-gray-400">
+              For early warning analytics, please complete the Attendance Factors Survey.
+            </div>
+            <Link
+              href={SURVEY_ROUTE}
+              className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2 font-semibold text-white hover:bg-blue-700"
+            >
+              <ClipboardList size={18} />
+              Take Survey
+            </Link>
+          </div>
+
           {data?.module_code && (
             <div className="mt-6 rounded-lg bg-gray-700/50 border border-gray-600 p-4">
               <div className="text-sm text-gray-400">
@@ -210,7 +253,6 @@ export default function StudentAttendancePage() {
                 </div>
               )}
 
-              {/* ✅ Progress Bar (only if max_students exists from backend) */}
               {typeof progressPct === "number" && (
                 <div className="mt-4">
                   <div className="flex justify-between text-xs text-gray-400 mb-1">
@@ -226,17 +268,12 @@ export default function StudentAttendancePage() {
           )}
         </div>
 
-        {/* ✅ VISUALIZATION */}
+        {/* VISUALIZATION */}
         <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Cards */}
           <div className="bg-gray-800 rounded-xl border border-gray-700 shadow-sm p-6">
             <div className="text-sm text-gray-400">Last Module</div>
-            <div className="mt-2 text-lg font-bold">
-              {data?.module_name ?? "—"}
-            </div>
-            <div className="text-sm text-gray-500 mt-1">
-              {data?.module_code ?? ""}
-            </div>
+            <div className="mt-2 text-lg font-bold">{data?.module_name ?? "—"}</div>
+            <div className="text-sm text-gray-500 mt-1">{data?.module_code ?? ""}</div>
           </div>
 
           <div className="bg-gray-800 rounded-xl border border-gray-700 shadow-sm p-6">
@@ -253,7 +290,6 @@ export default function StudentAttendancePage() {
             <div className="text-sm text-gray-500 mt-1">For current session</div>
           </div>
 
-          {/* Chart */}
           <div className="lg:col-span-3 bg-gray-800 rounded-xl border border-gray-700 shadow-sm p-6">
             <div className="flex items-center justify-between">
               <h2 className="font-bold text-gray-200 flex items-center gap-2">
@@ -267,7 +303,9 @@ export default function StudentAttendancePage() {
 
             <div className="mt-5 space-y-3">
               {moduleStats.length === 0 ? (
-                <div className="text-sm text-gray-500">No attendance yet. Submit once to see stats.</div>
+                <div className="text-sm text-gray-500">
+                  No attendance yet. Submit once to see stats.
+                </div>
               ) : (
                 moduleStats.map((m) => {
                   const max = Math.max(...moduleStats.map((x) => x.count), 1);
