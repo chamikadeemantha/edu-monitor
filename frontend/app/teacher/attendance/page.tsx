@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import Link from "next/link";
 import {
   Search,
@@ -11,6 +11,17 @@ import {
   Clock,
   RefreshCw,
   CalendarClock,
+  MapPin,
+  Maximize2,
+  Minimize2,
+  ShieldCheck,
+  History,
+  ChevronDown,
+  ChevronUp,
+  StopCircle,
+  CheckCircle,
+  XCircle,
+  GraduationCap,
 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -27,68 +38,75 @@ type SessionRes = {
   end_time: string;
   hours: number;
   location: string;
-
   pin: string;
   pin_expires_at: string;
   max_students: number;
   remaining_slots: number;
   regen_left: number;
+  is_active?: boolean;
+};
+
+type AttendanceItem = {
+  student_id: string;
+  student_name?: string;
+  full_name?: string;
+  profile_picture_url?: string;
+  selfie_base64?: string;
+  marked_at: string;
+  module_code?: string;
 };
 
 type SessionDetailRes = SessionRes & {
   attendance_count: number;
-  attendance: {
+  attendance: AttendanceItem[];
+};
+
+type PastSession = {
+  session_id: string;
+  module_code: string;
+  module_name: string;
+  year: string;
+  faculty: string;
+  batch: string;
+  location: string;
+  start_time: string;
+  end_time: string;
+  hours: number;
+  max_students: number;
+  attendance_count: number;
+  attendance_percentage: number;
+  created_at: string;
+  is_active: boolean;
+  attendees: {
     student_id: string;
-    student_name?: string;
-    selfie_base64?: string;
+    full_name: string;
+    profile_picture_url: string;
     marked_at: string;
   }[];
 };
 
-/** ---------------- Data ---------------- */
-const MODULES = [
-  { code: "IT3071", name: "Machine Learning and Optimization Methods" },
-  { code: "IT3061", name: "Massive Data Processing and Cloud Computing" },
-  { code: "IT3041", name: "Information Retrieval and Web Analytics" },
-  { code: "IT3021", name: "Data Warehousing and Business Intelligence" },
-  { code: "IT3011", name: "Theory and Practices in Statistical Modelling" },
-  { code: "IT4010", name: "Research Project (Comprehensive Design and Analysis Project)" },
-  { code: "IT4030", name: "Internet of Things" },
-  { code: "IT4041", name: "Introduction to Information Security Analytics" },
-  { code: "IT4011", name: "Database Administration and Storage Systems" },
-  { code: "IT4031", name: "Visual Analytics and User Experience Design" },
-];
-
-// sample roster (UI demo only)
-const ROSTER: { student_id: string; student_name: string }[] = [
-  { student_id: "IT20230012", student_name: "Chamika Deemantha" },
-  { student_id: "IT20230018", student_name: "Sahan Jayasinghe" },
-  { student_id: "IT20230021", student_name: "Isuru Bandara" },
-  { student_id: "IT20230029", student_name: "Nethmi Sewwandi" },
-  { student_id: "IT20230033", student_name: "Dulani Perera" },
-  { student_id: "IT20230044", student_name: "Tharindu Lakshan" },
-  { student_id: "IT20230051", student_name: "Kasun Madushanka" },
-  { student_id: "IT20230063", student_name: "Dinithi Abeysekara" },
-  { student_id: "IT20230077", student_name: "Harsha Wijesinghe" },
-  { student_id: "IT20230084", student_name: "Pavithra Fernando" },
-  { student_id: "IT20230091", student_name: "Shehan Pathirana" },
-  { student_id: "IT20230103", student_name: "Himali Rathnayake" },
-];
-
-function formatDT(dt: string) {
-  try {
-    return new Date(dt).toLocaleString();
-  } catch {
-    return dt;
-  }
-}
-
 /** ---------------- Page ---------------- */
 export default function AttendancePage() {
-  // setup
-  const [moduleCode, setModuleCode] = useState(MODULES[0].code);
+  useEffect(() => {
+    console.log("=== TEACHER ATTENDANCE PAGE MOUNTED ===");
+    return () => console.log("=== TEACHER ATTENDANCE PAGE UNMOUNTED ===");
+  }, []);
+
+  const [moduleCode, setModuleCode] = useState("IT3071");
   const moduleName = useMemo(
-    () => MODULES.find((m) => m.code === moduleCode)?.name ?? "",
+    () =>
+      [
+        { code: "IT3071", name: "Machine Learning and Optimization Methods" },
+        { code: "IT3061", name: "Massive Data Processing and Cloud Computing" },
+        { code: "IT3041", name: "Information Retrieval and Web Analytics" },
+        { code: "IT3021", name: "Data Warehousing and Business Intelligence" },
+        { code: "IT3011", name: "Theory and Practices in Statistical Modelling" },
+        { code: "IT4010", name: "Research Project (Comprehensive Design and Analysis Project)" },
+        { code: "IT4030", name: "Internet of Things" },
+        { code: "IT4041", name: "Introduction to Information Security Analytics" },
+        { code: "IT4011", name: "Database Administration and Storage Systems" },
+        { code: "IT4031", name: "Visual Analytics and User Experience Design" },
+      ].find((m) => m.code === moduleCode)?.name ?? "",
     [moduleCode]
   );
 
@@ -103,236 +121,433 @@ export default function AttendancePage() {
   const [expiryMinutes, setExpiryMinutes] = useState(10);
   const [regenLimit, setRegenLimit] = useState(3);
 
-  // sessions
   const [savedSessions, setSavedSessions] = useState<SessionRes[]>([]);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
-
   const [session, setSession] = useState<SessionRes | null>(null);
   const [detail, setDetail] = useState<SessionDetailRes | null>(null);
 
-  // ui
   const [loading, setLoading] = useState(false);
+  const [stoppingSession, setStoppingSession] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-  const [pollOn, setPollOn] = useState(false);
   const [search, setSearch] = useState("");
 
-  // trend chart
   const [liveCounts, setLiveCounts] = useState<number[]>([]);
   const lastCountRef = useRef<number>(0);
+  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+
+  const [isMapExpanded, setIsMapExpanded] = useState(false);
+
+  const [pastSessions, setPastSessions] = useState<PastSession[]>([]);
+  const [loadingPastSessions, setLoadingPastSessions] = useState(false);
+  const [showPastSessions, setShowPastSessions] = useState(false);
+  const [expandedSession, setExpandedSession] = useState<string | null>(null);
+
+  const [showStopModal, setShowStopModal] = useState(false);
+
+  const loadDetail = useCallback(async (sessionId: string) => {
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API}/api/attendance/sessions/${sessionId}`, {
+        cache: "no-store",
+        headers: {
+          Accept: "application/json",
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
+      const data = (await res.json()) as SessionDetailRes;
+      setDetail(data);
+      setSession(data);
+
+      const count = Number(data.attendance_count ?? 0);
+      if (count !== lastCountRef.current) {
+        lastCountRef.current = count;
+        setLiveCounts((prev) => [...prev, count].slice(-12));
+      }
+    } catch (err: any) {
+      // silent
+    }
+  }, []);
+
+  const loadPastSessions = useCallback(async () => {
+    setLoadingPastSessions(true);
+    try {
+      const token = localStorage.getItem("token");
+      
+      // Skip loading if no token is available
+      if (!token) {
+        console.log("No authentication token found, skipping past sessions load");
+        setLoadingPastSessions(false);
+        return;
+      }
+
+      const res = await fetch(`${API}/api/attendance/teacher/sessions?limit=50`, {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!res.ok) {
+        // Handle authentication errors gracefully
+        if (res.status === 401 || res.status === 403) {
+          console.warn("Authentication failed. Please log in again.");
+          // Clear invalid token
+          localStorage.removeItem("token");
+        }
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+      setPastSessions(data.sessions || []);
+    } catch (err) {
+      console.error("Failed to load past sessions:", err);
+      // Silently fail - user can retry manually
+    } finally {
+      setLoadingPastSessions(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadPastSessions();
+  }, [loadPastSessions]);
+
+  useEffect(() => {
+    if (!activeSessionId) return;
+    const wsUrl = API.replace("http", "ws") + `/api/attendance/ws/${activeSessionId}`;
+    const ws = new WebSocket(wsUrl);
+    ws.onmessage = (e) => { if (e.data === "update" && activeSessionId) loadDetail(activeSessionId); };
+    wsRef.current = ws;
+    return () => ws.close();
+  }, [activeSessionId, loadDetail]);
+
+  const startPolling = useCallback((sessionId: string) => {
+    if (pollingIntervalRef.current) clearInterval(pollingIntervalRef.current);
+    loadDetail(sessionId);
+    pollingIntervalRef.current = setInterval(() => loadDetail(sessionId), 3000);
+  }, [loadDetail]);
+
+  const stopPolling = useCallback(() => {
+    if (pollingIntervalRef.current) { clearInterval(pollingIntervalRef.current); pollingIntervalRef.current = null; }
+  }, []);
+
+  useEffect(() => () => stopPolling(), [stopPolling]);
+
+  useEffect(() => {
+    const savedId = localStorage.getItem("activeAttendanceSessionId");
+    if (savedId && !activeSessionId) {
+      setActiveSessionId(savedId);
+      loadDetail(savedId);
+      startPolling(savedId);
+    }
+  }, [loadDetail, startPolling, activeSessionId]);
+
+  useEffect(() => {
+    if (activeSessionId) localStorage.setItem("activeAttendanceSessionId", activeSessionId);
+    else localStorage.removeItem("activeAttendanceSessionId");
+  }, [activeSessionId]);
 
   async function createSession() {
     setLoading(true);
     setMsg(null);
-
     try {
+      const token = localStorage.getItem("token");
       const res = await fetch(`${API}/api/attendance/sessions`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(token && { Authorization: `Bearer ${token}` }) },
         body: JSON.stringify({
-          module_code: moduleCode,
-          module_name: moduleName,
-          year,
-          faculty,
-          batch,
-          start_time: startTime || "now",
-          end_time: endTime || "later",
-          hours,
-          location,
-          max_students: maxStudents,
-          expiry_minutes: expiryMinutes,
-          regen_limit: regenLimit,
+          module_code: moduleCode, module_name: moduleName, year, faculty, batch,
+          start_time: startTime || "now", end_time: endTime || "later", hours,
+          location, max_students: maxStudents, expiry_minutes: expiryMinutes, regen_limit: regenLimit,
         }),
       });
+      if (!res.ok) { const e = await res.json(); throw new Error(e.detail || `HTTP ${res.status}`); }
 
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((data as any)?.detail || `Failed to create session (${res.status})`);
+      const data = (await res.json()) as SessionRes;
+      setActiveSessionId(data.session_id);
+      setSession(data);
+      setDetail(null);
+      setSavedSessions((prev) => prev.some((s) => s.session_id === data.session_id) ? prev : [data, ...prev].slice(0, 8));
+      startPolling(data.session_id);
+      setMsg(`✅ Session created! PIN: ${data.pin}`);
+      setTimeout(() => setMsg(null), 7000);
 
-      setSession(data as SessionRes);
-      setActiveSessionId((data as SessionRes).session_id);
-      setPollOn(true);
-      setLiveCounts([]);
-
-      setSavedSessions((prev) => {
-        const exists = prev.some((s) => s.session_id === (data as SessionRes).session_id);
-        if (exists) return prev;
-        return [data as SessionRes, ...prev].slice(0, 8);
-      });
-
-      await loadDetail((data as SessionRes).session_id);
-    } catch (e: any) {
-      // This helps when browser shows "Failed to fetch"
-      setMsg(e?.message || "Failed to fetch. Check backend is running on http://localhost:8000 and CORS is enabled.");
+      loadPastSessions();
+    } catch (err: any) {
+      setMsg(`❌ Failed: ${err.message}`);
     } finally {
       setLoading(false);
     }
   }
 
-  async function switchSession(sessionId: string) {
-    const found = savedSessions.find((s) => s.session_id === sessionId);
-    if (!found) return;
-
-    setMsg(null);
-    setSession(found);
-    setActiveSessionId(found.session_id);
-    setPollOn(true);
-    setLiveCounts([]);
-    await loadDetail(found.session_id);
-  }
-
   async function regeneratePin() {
-    if (!session) return;
-
-    setMsg(null);
+    if (!session?.session_id) return;
     try {
+      const token = localStorage.getItem("token");
       const res = await fetch(`${API}/api/attendance/sessions/${session.session_id}/regenerate-pin`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(token && { Authorization: `Bearer ${token}` }) },
         body: JSON.stringify({ expiry_minutes: expiryMinutes }),
       });
-
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error((data as any)?.detail || `Failed to regenerate PIN (${res.status})`);
-
-      setSession(data as SessionRes);
-      setSavedSessions((prev) => prev.map((s) => (s.session_id === (data as SessionRes).session_id ? (data as SessionRes) : s)));
-    } catch (e: any) {
-      setMsg(e?.message || "Error");
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Failed"); }
+      const data = (await res.json()) as SessionRes;
+      setSession(data);
+      setSavedSessions((prev) => prev.map((s) => s.session_id === data.session_id ? data : s));
+      setMsg(`✅ PIN regenerated! New PIN: ${data.pin}`);
+      setTimeout(() => setMsg(null), 5000);
+    } catch (err: any) {
+      setMsg(`❌ ${err.message}`);
     }
   }
 
-  async function loadDetail(forcedSessionId?: string) {
-    const sid = forcedSessionId || session?.session_id;
-    if (!sid) return;
+  async function confirmStopSession() {
+    if (!session?.session_id) return;
 
-    const res = await fetch(`${API}/api/attendance/sessions/${sid}`);
-    const data = await res.json().catch(() => ({}));
+    setShowStopModal(false);
+    setStoppingSession(true);
 
-    if (!res.ok) {
-      setMsg((data as any)?.detail || `Request failed (${res.status})`);
-      return;
-    }
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API}/api/attendance/sessions/${session.session_id}/stop`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token && { Authorization: `Bearer ${token}` })
+        },
+      });
 
-    setDetail(data as SessionDetailRes);
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.detail || "Failed to stop session");
+      }
 
-    const countNow = Number((data as any)?.attendance_count ?? 0);
-    if (countNow !== lastCountRef.current) {
-      lastCountRef.current = countNow;
-      setLiveCounts((prev) => [...prev, countNow].slice(-12));
+      const data = await res.json();
+
+      setSession((prev) => prev ? { ...prev, is_active: false } : null);
+      stopPolling();
+      setActiveSessionId(null);
+      localStorage.removeItem("activeAttendanceSessionId");
+
+      setMsg(`✅ Session stopped successfully at ${new Date(data.ended_at).toLocaleTimeString()}`);
+      setTimeout(() => setMsg(null), 5000);
+
+      loadPastSessions();
+    } catch (err: any) {
+      setMsg(`❌ ${err.message}`);
+    } finally {
+      setStoppingSession(false);
     }
   }
-
-  useEffect(() => {
-    if (!pollOn || !session) return;
-    loadDetail();
-    const t = setInterval(() => loadDetail(), 2000);
-    return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pollOn, session?.session_id]);
 
   const expiresIn = useMemo(() => {
     if (!session) return null;
-    const exp = new Date(session.pin_expires_at).getTime();
-    const diff = Math.max(0, exp - Date.now());
-    return Math.ceil(diff / 1000);
-  }, [session, detail]);
+    return Math.max(0, Math.ceil((new Date(session.pin_expires_at).getTime() - Date.now()) / 1000));
+  }, [session]);
 
   const presentMap = useMemo(() => {
-    const map = new Map<string, { marked_at: string; selfie_base64?: string }>();
-    for (const a of detail?.attendance ?? []) {
-      map.set(a.student_id, { marked_at: a.marked_at, selfie_base64: a.selfie_base64 });
-    }
+    const map = new Map<string, AttendanceItem>();
+    detail?.attendance?.forEach((a) => map.set(a.student_id, a));
     return map;
   }, [detail]);
 
   const presentCount = detail?.attendance_count ?? 0;
 
-  const remainingSlots = useMemo(() => {
-    return detail?.remaining_slots ?? session?.remaining_slots ?? 0;
-  }, [detail, session]);
+  const attendedStudents = useMemo(() =>
+    detail?.attendance?.map((a) => ({
+      student_id: a.student_id,
+      student_name: a.full_name || a.student_name || a.student_id,
+      profile_picture_url: a.profile_picture_url,
+      selfie_base64: a.selfie_base64,
+      module_code: a.module_code || detail.module_code,
+    })) ?? [], [detail]);
 
-  const absentStudents = useMemo(() => {
-    return ROSTER.filter((s) => !presentMap.has(s.student_id));
-  }, [presentMap]);
-
-  const filteredRoster = useMemo(() => {
+  const filteredStudents = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return ROSTER;
-    return ROSTER.filter(
+    if (!q) return attendedStudents;
+    return attendedStudents.filter(
       (s) => s.student_id.toLowerCase().includes(q) || s.student_name.toLowerCase().includes(q)
     );
-  }, [search]);
+  }, [attendedStudents, search]);
 
-  const weeklyTrend = useMemo(() => {
-    const base = 40 + (moduleCode.charCodeAt(moduleCode.length - 1) % 15);
-    const arr = [base, base + 5, base + 2, base + 10, base + 6, base + 12, base + 8];
-    const day = new Date().getDay(); // 0 Sun
-    const idx = day === 0 ? 6 : day - 1; // Mon=0
-    arr[idx] = Math.max(10, Math.min(100, Math.round((presentCount / Math.max(1, maxStudents)) * 100)));
-    return arr;
-  }, [moduleCode, presentCount, maxStudents]);
+  const getProfilePictureUrl = (a: AttendanceItem) =>
+    a.profile_picture_url ? `${API}${a.profile_picture_url}` : null;
+
+  function formatDT(dt: string) {
+    try { return new Date(dt).toLocaleString(); } catch { return dt; }
+  }
+
+  function formatDate(dt: string) {
+    try { return new Date(dt).toLocaleDateString(); } catch { return dt; }
+  }
+
+  function formatTime(dt: string) {
+    try { return new Date(dt).toLocaleTimeString(); } catch { return dt; }
+  }
+
+  const classroomSeats = useMemo(() => {
+    const rows = 6;
+    const cols = 10;
+    const totalSeats = session?.max_students ?? maxStudents;
+    const seats = [];
+
+    for (let row = 0; row < rows; row++) {
+      for (let col = 0; col < cols; col++) {
+        const seatIndex = row * cols + col;
+        if (seatIndex < totalSeats) {
+          const student = attendedStudents[seatIndex] || null;
+          const isPresent = student ? presentMap.has(student.student_id) : false;
+          seats.push({ row, col, seatIndex, student, isPresent, isEmpty: !student });
+        }
+      }
+    }
+    return seats;
+  }, [session, maxStudents, attendedStudents, presentMap]);
 
   function exportCSV() {
-    const rows = ROSTER.map((s) => {
-      const present = presentMap.has(s.student_id);
-      const mark = present ? presentMap.get(s.student_id)!.marked_at : "";
+    if (!session || !detail) { setMsg("No active session to export"); return; }
+    const rows = attendedStudents.map((s) => {
+      const entry = presentMap.get(s.student_id);
       return {
-        student_id: s.student_id,
-        student_name: s.student_name,
-        status: present ? "PRESENT" : "ABSENT",
-        marked_at: mark ? formatDT(mark) : "",
-        module_code: session?.module_code ?? "",
-        module_name: session?.module_name ?? "",
-        batch,
-        faculty,
-        year,
+        student_id: s.student_id, student_name: s.student_name, status: "PRESENT",
+        marked_at: formatDT(entry?.marked_at || ""), module_code: s.module_code || session.module_code,
+        module_name: session.module_name, batch: session.batch, faculty: session.faculty, year: session.year,
       };
     });
-
     const headers = Object.keys(rows[0] || {});
-    const csv =
-      headers.join(",") +
-      "\n" +
-      rows
-        .map((r) => headers.map((h) => `"${String((r as any)[h] ?? "").replaceAll('"', '""')}"`).join(","))
-        .join("\n");
-
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const csv = [
+      headers.join(","),
+      ...rows.map((row) => headers.map((h) => `"${String((row as any)[h] ?? "").replace(/"/g, '""')}"`).join(",")),
+    ].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `attendance_${session?.module_code ?? "module"}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `attendance_${session.module_code}_${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }
 
+  const isSessionActive = session?.is_active !== false;
+
   return (
     <div className="flex flex-col h-full bg-gray-900 text-white overflow-hidden">
-      {/* Sticky Header */}
       <header className="h-16 bg-gray-800/50 backdrop-blur border-b border-gray-700 flex items-center justify-between px-8 sticky top-0 z-10 shrink-0">
-        <h2 className="text-lg font-semibold text-gray-200">
-          Student Attendance
-        </h2>
+        <h2 className="text-lg font-semibold text-gray-200">Student Attendance</h2>
         <div className="flex items-center gap-4">
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
           <span className="text-sm text-emerald-400">System Online</span>
         </div>
       </header>
 
-      {/* Main Scrollable Content */}
+      {/* CUSTOM STOP SESSION MODAL */}
+      {showStopModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
+          <div className="bg-gray-800 rounded-2xl border border-gray-700 max-w-md w-full shadow-2xl animate-scaleIn">
+            <div className="p-6 border-b border-gray-700">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-full bg-red-600/20 flex items-center justify-center flex-shrink-0">
+                  <StopCircle size={24} className="text-red-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-xl font-semibold text-white mb-2">
+                    Stop Attendance Session?
+                  </h3>
+                  <p className="text-sm text-gray-300">
+                    You are about to end this attendance session permanently.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="bg-yellow-950/30 border border-yellow-700/30 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-yellow-300 mb-2 flex items-center gap-2">
+                  <AlertTriangle size={16} />
+                  Warning: This action cannot be undone
+                </h4>
+                <ul className="space-y-2 text-sm text-yellow-200/80">
+                  <li className="flex items-start gap-2">
+                    <XCircle size={16} className="flex-shrink-0 mt-0.5" />
+                    <span>Students will no longer be able to check in</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <XCircle size={16} className="flex-shrink-0 mt-0.5" />
+                    <span>The PIN will become invalid immediately</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <XCircle size={16} className="flex-shrink-0 mt-0.5" />
+                    <span>Session will be marked as "STOPPED" in records</span>
+                  </li>
+                </ul>
+              </div>
+
+              {session && (
+                <div className="bg-gray-700/30 rounded-lg p-4">
+                  <div className="text-xs text-gray-400 mb-2">Session Details:</div>
+                  <div className="space-y-1 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Module:</span>
+                      <span className="text-white font-medium">{session.module_code}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Batch:</span>
+                      <span className="text-white">{session.batch}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-400">Current Attendance:</span>
+                      <span className="text-white">{presentCount}/{session.max_students} students</span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="p-6 border-t border-gray-700 flex gap-3">
+              <button
+                onClick={() => setShowStopModal(false)}
+                className="flex-1 rounded-xl bg-gray-700 px-4 py-3 font-semibold text-white hover:bg-gray-600 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmStopSession}
+                disabled={stoppingSession}
+                className="flex-1 rounded-xl bg-red-600 px-4 py-3 font-semibold text-white hover:bg-red-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {stoppingSession ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                    Stopping...
+                  </>
+                ) : (
+                  <>
+                    <StopCircle size={18} />
+                    Yes, Stop Session
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <main className="flex-1 overflow-auto p-8">
         <div className="mb-6 flex flex-col gap-3">
-          <div className="flex items-start justify-end gap-4">
-            {/* Controls moved to align right, removed duplicate H1 */}
-            <div className="flex items-center gap-3">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div />
+            <div className="flex items-center gap-3 flex-wrap">
               {savedSessions.length > 0 && (
                 <select
                   className="rounded-lg bg-gray-900 border border-gray-700 px-3 py-2 text-sm outline-none"
                   value={activeSessionId ?? ""}
-                  onChange={(e) => switchSession(e.target.value)}
+                  onChange={(e) => {
+                    const id = e.target.value;
+                    if (id) { setActiveSessionId(id); loadDetail(id); startPolling(id); }
+                  }}
                 >
-                  <option value="" disabled>
-                    Switch session...
-                  </option>
+                  <option value="" disabled>Switch session...</option>
                   {savedSessions.map((s) => (
                     <option key={s.session_id} value={s.session_id}>
                       {s.module_code} • {s.batch} • {new Date(s.pin_expires_at).toLocaleTimeString()}
@@ -341,330 +556,558 @@ export default function AttendancePage() {
                 </select>
               )}
 
+              {/* ── NEW: Student Progress Link ── */}
               <Link
-                href="/teacher/attendance/planner"
-                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-3 py-2 text-sm font-semibold hover:bg-indigo-500"
-                title="Prototype: predicts best time slots for higher attendance"
+                href="/teacher/attendance/students-progress"
+                className="inline-flex items-center gap-2 rounded-xl bg-teal-600 px-3 py-2 text-sm font-semibold hover:bg-teal-500 transition-colors"
               >
-                <CalendarClock size={16} />
-                Session Planner
+                <GraduationCap size={16} />
+                Student Progress
               </Link>
 
               <button
-                onClick={() => loadDetail()}
-                className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm hover:bg-white/15"
+                onClick={() => setShowPastSessions(!showPastSessions)}
+                className="inline-flex items-center gap-2 rounded-xl bg-purple-600 px-3 py-2 text-sm font-semibold hover:bg-purple-500"
               >
-                <RefreshCw size={16} />
-                Refresh
+                <History size={16} />
+                {showPastSessions ? "Hide" : "View"} Past Sessions
               </button>
-
-              <button
-                onClick={exportCSV}
-                disabled={!session}
-                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold hover:bg-emerald-500 disabled:opacity-50"
-                title={!session ? "Create or select a session first" : "Download CSV report"}
-              >
-                <Download size={16} />
-                Export CSV
+              <Link href="/teacher/attendance/planner"
+                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-3 py-2 text-sm font-semibold hover:bg-indigo-500">
+                <CalendarClock size={16} /> Session Planner
+              </Link>
+              <button onClick={() => activeSessionId && loadDetail(activeSessionId)} disabled={!activeSessionId}
+                className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm hover:bg-white/15 disabled:opacity-50">
+                <RefreshCw size={16} /> Refresh Now
+              </button>
+              <button onClick={exportCSV} disabled={!session}
+                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold hover:bg-emerald-500 disabled:opacity-50">
+                <Download size={16} /> Export CSV
               </button>
             </div>
           </div>
 
           {msg && (
-            <div className="rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-red-200">
+            <div className={`rounded-lg border px-4 py-3 text-sm ${msg.includes("✅") ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-red-500/40 bg-red-500/10 text-red-200"}`}>
               {msg}
             </div>
           )}
 
-          {/* Stats row */}
+          {session && !isSessionActive && (
+            <div className="rounded-lg border border-yellow-500/40 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-200 flex items-center gap-2">
+              <AlertTriangle size={18} />
+              <span>This session has been stopped. No new check-ins are allowed.</span>
+            </div>
+          )}
+
+          {showPastSessions && (
+            <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-xl font-bold flex items-center gap-2">
+                  <History size={20} className="text-purple-400" />
+                  Past Conducted Sessions
+                </h2>
+                <button
+                  onClick={loadPastSessions}
+                  disabled={loadingPastSessions}
+                  className="text-sm text-gray-400 hover:text-gray-200 flex items-center gap-1"
+                >
+                  <RefreshCw size={14} className={loadingPastSessions ? "animate-spin" : ""} />
+                  {loadingPastSessions ? "Loading..." : "Refresh"}
+                </button>
+              </div>
+
+              {loadingPastSessions ? (
+                <div className="text-center py-8 text-gray-500">Loading past sessions...</div>
+              ) : pastSessions.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">No past sessions found</div>
+              ) : (
+                <div className="space-y-3">
+                  {pastSessions.map((ps) => (
+                    <div key={ps.session_id} className="rounded-xl border border-gray-700 bg-gray-800/50 overflow-hidden">
+                      <div
+                        className="p-4 cursor-pointer hover:bg-gray-700/30 transition-colors"
+                        onClick={() => setExpandedSession(expandedSession === ps.session_id ? null : ps.session_id)}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <span className="text-lg font-bold text-white">{ps.module_code}</span>
+                              <span className="text-gray-400">•</span>
+                              <span className="text-sm text-gray-300">{ps.module_name}</span>
+                              {!ps.is_active && (
+                                <span className="text-xs bg-red-600 text-white px-2 py-0.5 rounded-full">
+                                  STOPPED
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-4 text-xs text-gray-400">
+                              <span>{formatDate(ps.created_at)}</span>
+                              <span>•</span>
+                              <span>{ps.batch}</span>
+                              <span>•</span>
+                              <span>{ps.location}</span>
+                              <span>•</span>
+                              <span>{ps.hours}h</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-6">
+                            <div className="text-right">
+                              <div className="text-2xl font-bold text-white">{ps.attendance_count}</div>
+                              <div className="text-xs text-gray-400">/{ps.max_students} students</div>
+                            </div>
+                            <div className="text-right">
+                              <div className={`text-xl font-bold ${ps.attendance_percentage >= 80 ? 'text-emerald-400' : ps.attendance_percentage >= 70 ? 'text-yellow-400' : 'text-red-400'}`}>
+                                {ps.attendance_percentage.toFixed(0)}%
+                              </div>
+                              <div className="text-xs text-gray-400">attendance</div>
+                            </div>
+                            {expandedSession === ps.session_id ? (
+                              <ChevronUp size={20} className="text-gray-400" />
+                            ) : (
+                              <ChevronDown size={20} className="text-gray-400" />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {expandedSession === ps.session_id && (
+                        <div className="border-t border-gray-700 p-4 bg-gray-900/50">
+                          <h4 className="text-sm font-semibold text-gray-300 mb-3">
+                            Students Attended ({ps.attendees.length})
+                          </h4>
+                          {ps.attendees.length === 0 ? (
+                            <div className="text-sm text-gray-500 text-center py-4">
+                              No students attended this session
+                            </div>
+                          ) : (
+                            <div className="max-h-60 overflow-auto">
+                              <table className="w-full text-sm">
+                                <thead className="text-gray-400 border-b border-gray-700 sticky top-0 bg-gray-900">
+                                  <tr>
+                                    <th className="text-left py-2 px-3">Photo</th>
+                                    <th className="text-left py-2 px-3">Student ID</th>
+                                    <th className="text-left py-2 px-3">Name</th>
+                                    <th className="text-left py-2 px-3">Marked At</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {ps.attendees.map((att) => (
+                                    <tr key={att.student_id} className="border-b border-gray-800 hover:bg-gray-800/30">
+                                      <td className="py-2 px-3">
+                                        <div className="w-10 h-10 rounded-full overflow-hidden border border-gray-700">
+                                          {att.profile_picture_url ? (
+                                            <img
+                                              src={`${API}${att.profile_picture_url}`}
+                                              alt={att.full_name}
+                                              className="w-full h-full object-cover"
+                                              onError={(e) => {
+                                                (e.target as HTMLImageElement).src = "https://via.placeholder.com/40?text=?";
+                                              }}
+                                            />
+                                          ) : (
+                                            <div className="w-full h-full bg-gray-700 flex items-center justify-center text-gray-400 font-medium">
+                                              {att.full_name.charAt(0).toUpperCase()}
+                                            </div>
+                                          )}
+                                        </div>
+                                      </td>
+                                      <td className="py-2 px-3 text-gray-300">{att.student_id}</td>
+                                      <td className="py-2 px-3 text-gray-300">{att.full_name}</td>
+                                      <td className="py-2 px-3 text-gray-400 text-xs">{formatDT(att.marked_at)}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="text-sm text-gray-300 flex items-center gap-2">
-                <Users size={16} className="opacity-80" />
-                Today Check-ins
-              </div>
+              <div className="text-sm text-gray-300 flex items-center gap-2"><Users size={16} className="opacity-80" /> Today Check-ins</div>
               <div className="mt-1 text-3xl font-bold">{presentCount}</div>
-              <div className="text-xs text-gray-400 mt-1">Out of {maxStudents} students</div>
+              <div className="text-xs text-gray-400 mt-1">Out of {session?.max_students ?? maxStudents} students</div>
             </div>
-
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="text-sm text-gray-300 flex items-center gap-2">
-                <Clock size={16} className="opacity-80" />
-                PIN Expires In
-              </div>
+              <div className="text-sm text-gray-300 flex items-center gap-2"><Clock size={16} className="opacity-80" /> PIN Expires In</div>
               <div className="mt-1 text-3xl font-bold">{session ? `${expiresIn ?? "-"}s` : "-"}</div>
-              <div className="text-xs text-gray-400 mt-1">Remaining slots: {session ? remainingSlots : "-"}</div>
+              <div className="text-xs text-gray-400 mt-1">Remaining slots: {session?.remaining_slots ?? "-"}</div>
             </div>
-
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="text-sm text-gray-300 flex items-center gap-2">
-                <AlertTriangle size={16} className="opacity-80" />
-                Absent Students
-              </div>
-              <div className="mt-1 text-3xl font-bold">{session ? absentStudents.length : "-"}</div>
-              <div className="text-xs text-gray-400 mt-1">From sample roster</div>
+              <div className="text-sm text-gray-300 flex items-center gap-2"><AlertTriangle size={16} className="opacity-80" /> Absent Students</div>
+              <div className="mt-1 text-3xl font-bold">{session ? session.max_students - presentCount : "-"}</div>
+              <div className="text-xs text-gray-400 mt-1">Based on check-ins only</div>
             </div>
-
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-              <div className="text-sm text-gray-300 flex items-center gap-2">
-                <TrendingUp size={16} className="opacity-80" />
-                Live Trend
-              </div>
+              <div className="text-sm text-gray-300 flex items-center gap-2"><TrendingUp size={16} className="opacity-80" /> Live Trend</div>
               <div className="mt-2 flex items-end gap-1 h-10">
                 {(liveCounts.length ? liveCounts : [0, 0, 0, 0]).map((v, i) => (
-                  <div
-                    key={i}
-                    className="w-full rounded-t bg-white/20"
-                    style={{ height: `${Math.min(100, (v / Math.max(1, maxStudents)) * 100)}%` }}
-                    title={`${v}`}
-                  />
+                  <div key={i} className="w-full rounded-t bg-white/20"
+                    style={{ height: `${Math.min(100, (v / Math.max(1, session?.max_students ?? 1)) * 100)}%` }} />
                 ))}
               </div>
-              <div className="text-xs text-gray-400 mt-2">Last updates</div>
+              <div className="text-xs text-gray-400 mt-2">Last {liveCounts.length} updates</div>
             </div>
           </div>
+
+          {session && (
+            <div className={`rounded-3xl border border-white/10 bg-gradient-to-br from-indigo-500/10 via-purple-500/5 to-pink-500/10 backdrop-blur transition-all duration-300 ${isMapExpanded ? "p-12" : "p-8"}`}>
+              <div className="flex items-center justify-between mb-8">
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-indigo-500/20 border border-indigo-500/30 shadow-lg shadow-indigo-500/10">
+                    <MapPin size={24} className="text-indigo-400" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold bg-gradient-to-r from-white to-gray-300 bg-clip-text text-transparent">
+                      Classroom Seating Map
+                    </h2>
+                    <p className="text-sm text-gray-400 mt-1">{session.location} • Real-time occupancy view</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-6">
+                  <div className="flex items-center gap-6 text-sm bg-black/20 rounded-2xl px-6 py-3 border border-white/5">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-4 h-4 rounded-full bg-emerald-500/80 border-2 border-emerald-400 shadow-lg shadow-emerald-500/30"></div>
+                      <span className="text-gray-300 font-medium">Present (selfie)</span>
+                    </div>
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-4 h-4 rounded-full bg-gray-700 border-2 border-gray-600"></div>
+                      <span className="text-gray-300 font-medium">Empty</span>
+                    </div>
+                    <div className="flex items-center gap-2.5">
+                      <ShieldCheck size={16} className="text-blue-400" />
+                      <span className="text-gray-400 text-xs">Hover to verify identity</span>
+                    </div>
+                  </div>
+
+                  <button onClick={() => setIsMapExpanded(!isMapExpanded)}
+                    className="p-3 rounded-xl bg-white/10 hover:bg-white/15 transition-all hover:scale-105 border border-white/5"
+                    title={isMapExpanded ? "Minimize" : "Expand"}>
+                    {isMapExpanded ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mb-10 px-4">
+                <div className="h-1.5 bg-gradient-to-r from-transparent via-white/30 to-transparent rounded-full mb-3"></div>
+                <div className="text-center text-sm text-gray-400 font-semibold tracking-widest">FRONT • INSTRUCTOR AREA</div>
+              </div>
+
+              <div className={`grid ${isMapExpanded ? "gap-6 grid-cols-10 px-8 pt-8" : "gap-5 grid-cols-10 px-4 pt-6"} mx-auto max-w-full overflow-x-auto overflow-y-visible pb-2`}>
+                {classroomSeats.map((seat) => {
+                  const attendanceData = seat.student
+                    ? detail?.attendance?.find((a) => a.student_id === seat.student?.student_id)
+                    : null;
+                  const profilePicUrl = attendanceData ? getProfilePictureUrl(attendanceData) : null;
+                  const primaryImage = attendanceData?.selfie_base64 ?? null;
+                  const fallbackImage = profilePicUrl;
+
+                  return (
+                    <div
+                      key={`${seat.row}-${seat.col}`}
+                      className={`
+                        relative group aspect-square rounded-2xl transition-all duration-300
+                        ${seat.isPresent
+                          ? "bg-emerald-500/15 border-[3px] border-emerald-400/70 shadow-xl shadow-emerald-500/30 hover:shadow-emerald-500/50 hover:scale-110 hover:-translate-y-1 hover:z-50"
+                          : seat.isEmpty
+                            ? "bg-gray-800/30 border-[3px] border-gray-700/40 hover:bg-gray-800/50 hover:border-gray-600/60"
+                            : "bg-gray-800/30 border-[3px] border-gray-700/40"
+                        }
+                        cursor-pointer backdrop-blur-sm
+                      `}
+                      title={seat.student ? `${seat.student.student_id} - ${seat.student.student_name}` : "Empty seat"}
+                    >
+                      {seat.isPresent && seat.student ? (
+                        <div className="relative w-full h-full p-1 overflow-hidden rounded-2xl">
+                          <div className="absolute inset-0 bg-emerald-400/20 animate-pulse rounded-xl -z-10"></div>
+                          <div className="relative w-full h-full rounded-xl overflow-hidden">
+                            {primaryImage ? (
+                              <img
+                                src={primaryImage}
+                                alt="Check-in selfie"
+                                className="w-full h-full object-cover transition-opacity duration-300 group-hover:opacity-0"
+                              />
+                            ) : fallbackImage ? (
+                              <img
+                                src={fallbackImage}
+                                alt={seat.student.student_name}
+                                className="w-full h-full object-cover transition-opacity duration-300 group-hover:opacity-0"
+                                onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/100?text=?"; }}
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-emerald-500/30 to-emerald-600/30 text-emerald-200 font-bold text-xl transition-opacity duration-300 group-hover:opacity-0">
+                                {seat.student.student_name.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+
+                            <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
+                              {fallbackImage ? (
+                                <img
+                                  src={fallbackImage}
+                                  alt="Profile picture"
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/100?text=?"; }}
+                                />
+                              ) : primaryImage ? (
+                                <img src={primaryImage} alt="selfie" className="w-full h-full object-cover" />
+                              ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-blue-500/30 to-blue-600/30 text-blue-200 font-bold text-xl">
+                                  {seat.student.student_name.charAt(0).toUpperCase()}
+                                </div>
+                              )}
+
+                              <div className="absolute top-1.5 left-1.5 bg-blue-600/90 backdrop-blur-sm text-[9px] text-white px-1.5 py-0.5 rounded-md font-semibold z-20 flex items-center gap-1">
+                                <ShieldCheck size={9} />
+                                ID Photo
+                              </div>
+                            </div>
+
+                            <div className="absolute top-1.5 left-1.5 bg-emerald-600/90 backdrop-blur-sm text-[9px] text-white px-1.5 py-0.5 rounded-md font-semibold z-20 flex items-center gap-1 group-hover:opacity-0 transition-opacity duration-300">
+                              <span>📷</span> Live
+                            </div>
+
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/95 via-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col items-center justify-end pb-2 px-1">
+                              <p className="text-[9px] font-bold text-emerald-300 text-center line-clamp-1 drop-shadow-lg mb-0.5">
+                                {seat.student.student_id}
+                              </p>
+                              <p className="text-[10px] font-bold text-white text-center line-clamp-1 drop-shadow-lg mb-0.5">
+                                {seat.student.student_name}
+                              </p>
+                              <div className="px-2 py-0.5 rounded-full bg-blue-500 text-[8px] font-semibold text-white shadow-lg">
+                                ✓ VERIFIED
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="absolute top-2 right-2 z-10 pointer-events-none">
+                            <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 border-2 border-white shadow-lg shadow-emerald-500/50 animate-pulse"></div>
+                          </div>
+                        </div>
+                      ) : seat.isEmpty ? (
+                        <div className="w-full h-full flex items-center justify-center p-2">
+                          <div className="w-10 h-10 rounded-xl border-[3px] border-dashed border-gray-600/40"></div>
+                        </div>
+                      ) : null}
+
+                      <div className="absolute bottom-1.5 right-1.5 bg-black/60 backdrop-blur-sm text-[10px] text-gray-300 px-2 py-0.5 rounded-md font-medium pointer-events-none z-20">
+                        {seat.seatIndex + 1}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div className="mt-10 px-4">
+                <div className="text-center text-sm text-gray-400 font-semibold tracking-widest mb-3">BACK • EXIT</div>
+                <div className="h-1.5 bg-gradient-to-r from-transparent via-white/20 to-transparent rounded-full"></div>
+              </div>
+
+              <div className="mt-8 pt-6 border-t border-white/10 flex items-center justify-between text-sm flex-wrap gap-4">
+                <div className="flex items-center gap-8 flex-wrap">
+                  <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-2.5">
+                    <span className="text-gray-400 text-xs uppercase tracking-wider">Occupied</span>
+                    <div className="mt-0.5 font-bold text-emerald-400 text-lg">{presentCount} seats</div>
+                  </div>
+                  <div className="bg-gray-700/10 border border-gray-600/20 rounded-xl px-4 py-2.5">
+                    <span className="text-gray-400 text-xs uppercase tracking-wider">Vacancy</span>
+                    <div className="mt-0.5 font-bold text-gray-300 text-lg">{session.max_students - presentCount} seats</div>
+                  </div>
+                  <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-xl px-4 py-2.5">
+                    <span className="text-gray-400 text-xs uppercase tracking-wider">Occupancy Rate</span>
+                    <div className="mt-0.5 font-bold text-indigo-400 text-lg">
+                      {session.max_students > 0 ? Math.round((presentCount / session.max_students) * 100) : 0}%
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2.5 text-xs text-gray-400 bg-black/20 rounded-xl px-4 py-2.5 border border-white/5">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shadow-lg shadow-emerald-500/50"></span>
+                  <span className="font-medium">Live updates every 3s</span>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Main layout */}
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          {/* Lecture Setup */}
           <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
             <h2 className="mb-4 text-lg font-semibold">Lecture Setup</h2>
-
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <label className="text-sm text-gray-300">
                 Module Code
-                <select
-                  className="mt-1 w-full rounded-lg bg-gray-900 border border-gray-700 p-2 text-white outline-none"
-                  value={moduleCode}
-                  onChange={(e) => setModuleCode(e.target.value)}
-                >
-                  {MODULES.map((m) => (
-                    <option key={m.code} value={m.code} className="bg-gray-900 text-white">
-                      {m.code}
-                    </option>
+                <select className="mt-1 w-full rounded-lg bg-gray-900 border border-gray-700 p-2 text-white outline-none"
+                  value={moduleCode} onChange={(e) => setModuleCode(e.target.value)}>
+                  {["IT3071", "IT3061", "IT3041", "IT3021", "IT3011", "IT4010", "IT4030", "IT4041", "IT4011", "IT4031"].map((code) => (
+                    <option key={code} value={code}>{code}</option>
                   ))}
                 </select>
               </label>
-
               <label className="text-sm text-gray-300">
                 Module Name (auto)
-                <input
-                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                  value={moduleName}
-                  readOnly
-                />
+                <input className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none" value={moduleName} readOnly />
               </label>
-
-              <label className="text-sm text-gray-300">
-                Year
-                <input
-                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                  value={year}
-                  onChange={(e) => setYear(e.target.value)}
-                />
+              <label className="text-sm text-gray-300">Year
+                <input className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none" value={year} onChange={(e) => setYear(e.target.value)} />
               </label>
-
-              <label className="text-sm text-gray-300">
-                Faculty
-                <input
-                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                  value={faculty}
-                  onChange={(e) => setFaculty(e.target.value)}
-                />
+              <label className="text-sm text-gray-300">Faculty
+                <input className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none" value={faculty} onChange={(e) => setFaculty(e.target.value)} />
               </label>
-
-              <label className="text-sm text-gray-300">
-                Batch
-                <input
-                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                  value={batch}
-                  onChange={(e) => setBatch(e.target.value)}
-                />
+              <label className="text-sm text-gray-300">Batch
+                <input className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none" value={batch} onChange={(e) => setBatch(e.target.value)} />
               </label>
-
-              <label className="text-sm text-gray-300">
-                Location
-                <input
-                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                  value={location}
-                  onChange={(e) => setLocation(e.target.value)}
-                />
+              <label className="text-sm text-gray-300">Location
+                <input className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none" value={location} onChange={(e) => setLocation(e.target.value)} />
               </label>
-
-              <label className="text-sm text-gray-300">
-                Start Time
-                <input
-                  type="datetime-local"
-                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                  value={startTime}
-                  onChange={(e) => setStartTime(e.target.value)}
-                />
+              <label className="text-sm text-gray-300">Start Time
+                <input type="datetime-local" className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
               </label>
-
-              <label className="text-sm text-gray-300">
-                End Time
-                <input
-                  type="datetime-local"
-                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                  value={endTime}
-                  onChange={(e) => setEndTime(e.target.value)}
-                />
+              <label className="text-sm text-gray-300">End Time
+                <input type="datetime-local" className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
               </label>
-
-              <label className="text-sm text-gray-300">
-                Hours
-                <input
-                  type="number"
-                  step="0.5"
-                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                  value={hours}
-                  onChange={(e) => setHours(Number(e.target.value))}
-                />
+              <label className="text-sm text-gray-300">Hours
+                <input type="number" step="0.5" className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none" value={hours} onChange={(e) => setHours(Number(e.target.value))} />
               </label>
-
-              <label className="text-sm text-gray-300">
-                Student Count (max check-ins)
-                <input
-                  type="number"
-                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                  value={maxStudents}
-                  onChange={(e) => setMaxStudents(Number(e.target.value))}
-                />
+              <label className="text-sm text-gray-300">Max Students
+                <input type="number" className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none" value={maxStudents} onChange={(e) => setMaxStudents(Number(e.target.value))} />
               </label>
-
-              <label className="text-sm text-gray-300">
-                PIN Expiry (minutes)
-                <input
-                  type="number"
-                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                  value={expiryMinutes}
-                  onChange={(e) => setExpiryMinutes(Number(e.target.value))}
-                />
+              <label className="text-sm text-gray-300">PIN Expiry (minutes)
+                <input type="number" className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none" value={expiryMinutes} onChange={(e) => setExpiryMinutes(Number(e.target.value))} />
               </label>
-
-              <label className="text-sm text-gray-300">
-                PIN Regenerate Limit
-                <input
-                  type="number"
-                  className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none"
-                  value={regenLimit}
-                  onChange={(e) => setRegenLimit(Number(e.target.value))}
-                />
+              <label className="text-sm text-gray-300">PIN Regen Limit
+                <input type="number" className="mt-1 w-full rounded-lg bg-black/20 border border-white/10 p-2 text-white outline-none" value={regenLimit} onChange={(e) => setRegenLimit(Number(e.target.value))} />
               </label>
             </div>
-
-            <button
-              onClick={createSession}
-              disabled={loading}
-              className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-3 font-semibold hover:bg-blue-500 disabled:opacity-60"
-            >
+            <button onClick={createSession} disabled={loading}
+              className="mt-5 w-full rounded-xl bg-blue-600 px-4 py-3 font-semibold hover:bg-blue-500 disabled:opacity-60 disabled:cursor-not-allowed transition-colors">
               {loading ? "Generating..." : "Generate PIN"}
             </button>
-
-            {/* Weekly Trend */}
-            <div className="mt-6 rounded-2xl border border-white/10 bg-black/20 p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="font-semibold">Weekly Trend</div>
-                <div className="text-xs text-gray-400">Mon → Sun (percent)</div>
-              </div>
-
-              <div className="h-32 flex items-end gap-2">
-                {weeklyTrend.map((v, i) => (
-                  <div key={i} className="w-full">
-                    <div className="w-full rounded-t bg-white/20" style={{ height: `${v}%` }} title={`${v}%`} />
-                    <div className="mt-2 text-center text-xs text-gray-400">
-                      {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][i]}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
           </div>
 
-          {/* Live + Lookup */}
           <div className="space-y-6">
-            {/* Live Session */}
             <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
               <h2 className="mb-4 text-lg font-semibold">Live Session</h2>
 
               {!session ? (
-                <div className="text-gray-400">No active session yet.</div>
+                <div className="text-gray-400 text-center py-8">
+                  <p>No active session yet.</p>
+                  <p className="text-sm mt-2">Click "Generate PIN" to start a session</p>
+                </div>
               ) : (
                 <div className="space-y-4">
                   <div className="rounded-xl border border-white/10 bg-black/20 p-4">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between flex-wrap gap-4">
                       <div>
                         <div className="text-gray-300 text-sm">PIN</div>
-                        <div className="text-4xl font-bold tracking-widest">{session.pin}</div>
-                        <div className="mt-1 text-sm text-gray-400">
-                          Expires in: <span className="text-white">{expiresIn ?? "-"}s</span>
-                        </div>
-                        <div className="mt-1 text-xs text-gray-400">
-                          {session.module_code} • {session.batch} • {session.location}
-                        </div>
+                        <div className="text-4xl font-bold tracking-widest font-mono">{session.pin}</div>
+                        <div className="mt-1 text-sm text-gray-400">Expires in: <span className="text-white font-medium">{expiresIn ?? "-"}s</span></div>
+                        <div className="mt-1 text-xs text-gray-400">{session.module_code} • {session.batch} • {session.location}</div>
                       </div>
-
                       <div className="text-right">
                         <div className="text-gray-300 text-sm">Remaining Slots</div>
-                        <div className="text-3xl font-bold">{detail?.remaining_slots ?? session.remaining_slots}</div>
-                        <div className="mt-1 text-sm text-gray-400">
-                          Regen left: <span className="text-white">{session.regen_left}</span>
-                        </div>
+                        <div className="text-3xl font-bold">{session.remaining_slots}</div>
+                        <div className="mt-1 text-sm text-gray-400">Regen left: <span className="text-white">{session.regen_left}</span></div>
                       </div>
                     </div>
 
-                    <button
-                      onClick={regeneratePin}
-                      className="mt-4 w-full rounded-xl bg-emerald-600 px-4 py-2 font-semibold hover:bg-emerald-500"
-                    >
-                      Regenerate PIN
-                    </button>
+                    <div className="mt-4 grid grid-cols-2 gap-3">
+                      <button
+                        onClick={regeneratePin}
+                        disabled={session.regen_left <= 0 || !isSessionActive}
+                        className="rounded-xl bg-emerald-600 px-4 py-2 font-semibold hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        {session.regen_left <= 0 ? "Regen Limit Reached" : "Regenerate PIN"}
+                      </button>
+
+                      <button
+                        onClick={() => setShowStopModal(true)}
+                        disabled={stoppingSession || !isSessionActive}
+                        className="rounded-xl bg-red-600 px-4 py-2 font-semibold hover:bg-red-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+                      >
+                        {!isSessionActive ? (
+                          <>
+                            <CheckCircle size={16} />
+                            Session Stopped
+                          </>
+                        ) : (
+                          <>
+                            <StopCircle size={16} />
+                            Stop Session
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {!isSessionActive && (
+                      <div className="mt-3 text-xs text-red-300 text-center">
+                        This session has been stopped. Students can no longer check in.
+                      </div>
+                    )}
                   </div>
 
                   <div className="rounded-xl border border-white/10 bg-black/20 p-4">
                     <div className="mb-3 flex items-center justify-between">
-                      <div className="font-semibold">Live Check-ins ({detail?.attendance_count ?? 0})</div>
-                      <button
-                        onClick={() => loadDetail()}
-                        className="rounded-lg bg-white/10 px-3 py-1 text-sm hover:bg-white/15"
-                      >
-                        Refresh
-                      </button>
+                      <div className="font-semibold">Live Check Ins ({presentCount})</div>
+                      <div className="flex items-center gap-2">
+                        {pollingIntervalRef.current && isSessionActive && (
+                          <span className="text-xs text-emerald-400 flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 bg-emerald-400 rounded-full animate-pulse"></span>Live
+                          </span>
+                        )}
+                        <button onClick={() => activeSessionId && loadDetail(activeSessionId)}
+                          className="rounded-lg bg-white/10 px-3 py-1 text-sm hover:bg-white/15 transition-colors">
+                          Refresh
+                        </button>
+                      </div>
                     </div>
 
                     <div className="max-h-[280px] overflow-auto">
                       <table className="w-full text-left text-sm">
-                        <thead className="text-gray-300">
+                        <thead className="text-gray-300 sticky top-0 bg-gray-900 z-10">
                           <tr className="border-b border-white/10">
-                            <th className="py-2">Face</th>
-                            <th className="py-2">Student ID</th>
-                            <th className="py-2">Name</th>
-                            <th className="py-2">Marked At</th>
+                            <th className="py-2 px-2">Photo</th>
+                            <th className="py-2 px-2">ID Number</th>
+                            <th className="py-2 px-2">Name</th>
+                            <th className="py-2 px-2">Module</th>
+                            <th className="py-2 px-2">Marked At</th>
                           </tr>
                         </thead>
-                        <tbody className="text-gray-200">
-                          {(detail?.attendance ?? []).map((a) => (
-                            <tr key={a.student_id} className="border-b border-white/5">
-                              <td className="py-2">
-                                {a.selfie_base64 ? (
-                                  // eslint-disable-next-line @next/next/no-img-element
-                                  <img alt="selfie" className="h-10 w-10 rounded-full object-cover" src={a.selfie_base64} />
-                                ) : (
-                                  <div className="h-10 w-10 rounded-full bg-white/10 flex items-center justify-center">🙂</div>
-                                )}
-                              </td>
-                              <td className="py-2">{a.student_id}</td>
-                              <td className="py-2">{a.student_name ?? "-"}</td>
-                              <td className="py-2">{formatDT(a.marked_at)}</td>
-                            </tr>
-                          ))}
-
-                          {(detail?.attendance ?? []).length === 0 && (
+                        <tbody>
+                          {detail?.attendance?.length ? (
+                            detail.attendance.map((a) => {
+                              const profilePicUrl = getProfilePictureUrl(a);
+                              return (
+                                <tr key={a.student_id} className="border-b border-white/5 hover:bg-white/5">
+                                  <td className="py-2 px-2">
+                                    <div className="w-10 h-10 rounded-full overflow-hidden border border-gray-700">
+                                      {profilePicUrl ? (
+                                        <img src={profilePicUrl} alt="profile"
+                                          className="w-full h-full object-cover"
+                                          onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/40?text=?"; }} />
+                                      ) : (
+                                        <div className="w-full h-full bg-gray-700 flex items-center justify-center text-gray-400 font-medium">
+                                          {(a.full_name || a.student_id).charAt(0).toUpperCase()}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </td>
+                                  <td className="py-2 px-2">{a.student_id}</td>
+                                  <td className="py-2 px-2">{a.full_name || a.student_name || "-"}</td>
+                                  <td className="py-2 px-2 font-mono text-xs text-emerald-400">{a.module_code || session.module_code}</td>
+                                  <td className="py-2 px-2 text-xs">{formatTime(a.marked_at)}</td>
+                                </tr>
+                              );
+                            })
+                          ) : (
                             <tr>
-                              <td className="py-4 text-gray-400" colSpan={4}>
-                                No check-ins yet.
-                              </td>
+                              <td colSpan={5} className="py-8 text-center text-gray-500">No check-ins yet...</td>
                             </tr>
                           )}
                         </tbody>
@@ -675,71 +1118,102 @@ export default function AttendancePage() {
               )}
             </div>
 
-            {/* Lookup */}
             <div className="rounded-2xl border border-white/10 bg-white/5 p-5">
-              <div className="mb-4 flex items-center justify-between gap-3">
+              <div className="mb-4 flex items-center justify-between gap-4 flex-wrap">
                 <h2 className="text-lg font-semibold">Student Attendance Lookup</h2>
-
-                <div className="relative w-[320px] max-w-full">
-                  <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-                  <input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="w-full rounded-xl bg-black/20 border border-white/10 pl-9 pr-3 py-2 text-sm text-white outline-none"
+                <div className="relative w-full max-w-[360px]">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={16} />
+                  <input value={search} onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search by ID or name..."
-                  />
+                    className="w-full bg-black/30 border border-gray-700 rounded-xl pl-10 pr-4 py-2 text-sm focus:outline-none focus:border-emerald-500/50 transition-colors" />
                 </div>
               </div>
 
-              <div className="max-h-[360px] overflow-auto rounded-xl border border-white/10 bg-black/20">
+              <div className="max-h-[400px] overflow-auto rounded-xl border border-gray-700 bg-black/30">
                 <table className="w-full text-left text-sm">
-                  <thead className="text-gray-300">
-                    <tr className="border-b border-white/10">
+                  <thead className="text-gray-300 sticky top-0 bg-gray-900 z-10">
+                    <tr className="border-b border-gray-700">
+                      <th className="py-3 px-4">Photo</th>
                       <th className="py-3 px-4">Student</th>
-                      <th className="py-3 px-4">ID</th>
+                      <th className="py-3 px-4">ID Number</th>
+                      <th className="py-3 px-4">Module</th>
                       <th className="py-3 px-4">Status</th>
                       <th className="py-3 px-4">Time</th>
                     </tr>
                   </thead>
-                  <tbody className="text-gray-200">
-                    {filteredRoster.map((s) => {
-                      const mark = presentMap.get(s.student_id);
-                      const present = !!mark;
+                  <tbody>
+                    {session ? (
+                      filteredStudents.length > 0 ? (
+                        filteredStudents.map((s) => {
+                          const entry = presentMap.get(s.student_id);
+                          const profilePicUrl = s.profile_picture_url ? `${API}${s.profile_picture_url}` : null;
 
-                      return (
-                        <tr key={s.student_id} className="border-b border-white/5">
-                          <td className="py-3 px-4 font-medium">{s.student_name}</td>
-                          <td className="py-3 px-4">{s.student_id}</td>
-                          <td className="py-3 px-4">
-                            <span
-                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold ${present ? "bg-emerald-500/15 text-emerald-200" : "bg-yellow-500/15 text-yellow-200"
-                                }`}
-                            >
-                              {present ? "PRESENT" : "ABSENT"}
-                            </span>
-                          </td>
-                          <td className="py-3 px-4 text-gray-300">{present ? formatDT(mark!.marked_at) : "-"}</td>
+                          return (
+                            <tr key={s.student_id} className="border-b border-gray-800 hover:bg-gray-800/50">
+                              <td className="py-3 px-4">
+                                <div className="w-12 h-12 rounded-full overflow-hidden border border-gray-700">
+                                  {profilePicUrl ? (
+                                    <img src={profilePicUrl} alt={s.student_name}
+                                      className="w-full h-full object-cover"
+                                      onError={(e) => { (e.target as HTMLImageElement).src = "https://via.placeholder.com/48?text=?"; }} />
+                                  ) : (
+                                    <div className="w-full h-full bg-gray-700 flex items-center justify-center text-gray-400 font-medium">
+                                      {s.student_name.charAt(0).toUpperCase()}
+                                    </div>
+                                  )}
+                                </div>
+                              </td>
+                              <td className="py-3 px-4 font-medium">{s.student_name}</td>
+                              <td className="py-3 px-4">{s.student_id}</td>
+                              <td className="py-3 px-4 font-mono text-xs text-emerald-400">{s.module_code}</td>
+                              <td className="py-3 px-4">
+                                <span className="inline-flex px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-900/40 text-emerald-300 border border-emerald-700/50">
+                                  PRESENT
+                                </span>
+                              </td>
+                              <td className="py-3 px-4 text-gray-400 text-xs">{entry ? formatTime(entry.marked_at) : "-"}</td>
+                            </tr>
+                          );
+                        })
+                      ) : (
+                        <tr>
+                          <td colSpan={6} className="py-16 text-center text-gray-500">No students have checked in yet</td>
                         </tr>
-                      );
-                    })}
-
-                    {filteredRoster.length === 0 && (
+                      )
+                    ) : (
                       <tr>
-                        <td colSpan={4} className="py-6 px-4 text-gray-400">
-                          No students match your search.
-                        </td>
+                        <td colSpan={6} className="py-16 text-center text-gray-500">Create a session to view attendance</td>
                       </tr>
                     )}
                   </tbody>
                 </table>
               </div>
-
-              <div className="mt-4 text-xs text-gray-400">
+              <div className="mt-4 text-xs text-gray-500">
+                {session
+                  ? `Showing real-time check-ins • ${presentCount} present • updates every ~3s`
+                  : "Create a session to start tracking attendance"}
               </div>
             </div>
           </div>
         </div>
       </main>
+
+      <style jsx global>{`
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes scaleIn {
+      from { transform: scale(0.95); opacity: 0; }
+      to { transform: scale(1); opacity: 1; }
+    }
+    .animate-fadeIn {
+      animation: fadeIn 0.2s ease-out;
+    }
+    .animate-scaleIn {
+      animation: scaleIn 0.2s ease-out;
+    }
+`}</style>
     </div>
   );
 }
