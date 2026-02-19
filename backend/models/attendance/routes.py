@@ -10,10 +10,27 @@ from pydantic import BaseModel
 from models.auth.dependencies import get_current_user
 from models.auth.models import User
 
+# Survey imports
+try:
+    from models.attendance.survey import (
+        init_survey_tables,
+        save_survey_submission,
+        get_latest_survey_by_user_id,
+        get_survey_by_student_reg_no,
+        get_all_survey_summaries,
+    )
+    SURVEY_AVAILABLE = True
+except ImportError:
+    SURVEY_AVAILABLE = False
+    print("⚠️ Survey module not available")
+
 router = APIRouter()
 
 # Store active WebSocket connections
 active_connections: dict[str, List[WebSocket]] = {}
+
+# Survey initialization flag
+_SURVEY_READY = False
 
 # Pydantic models
 class SessionCreate(BaseModel):
@@ -132,12 +149,12 @@ async def create_session(
         "year": new_session.year,
         "faculty": new_session.faculty,
         "batch": new_session.batch,
-        "start_time": new_session.start_time.isoformat(),
-        "end_time": new_session.end_time.isoformat(),
+        "start_time": new_session.start_time.isoformat() + "Z",
+        "end_time": new_session.end_time.isoformat() + "Z",
         "hours": new_session.hours,
         "location": new_session.location,
         "pin": new_session.pin,
-        "pin_expires_at": new_session.pin_expires_at.isoformat(),
+        "pin_expires_at": new_session.pin_expires_at.isoformat() + "Z",
         "max_students": new_session.max_students,
         "remaining_slots": new_session.remaining_slots,
         "regen_left": new_session.regen_left,
@@ -190,7 +207,7 @@ async def get_session(
             "student_id": record.student_id,
             "full_name": student_row[1] if student_row else None,
             "profile_picture_url": f"/api/auth/users/{student_row[0]}/profile-picture" if student_row else None,
-            "marked_at": record.marked_at.isoformat(),
+            "marked_at": record.marked_at.isoformat() + "Z",
             "selfie_base64": record.selfie_base64,
             "module_code": session.module_code
         })
@@ -202,12 +219,12 @@ async def get_session(
         "year": session.year,
         "faculty": session.faculty,
         "batch": session.batch,
-        "start_time": session.start_time.isoformat(),
-        "end_time": session.end_time.isoformat(),
+        "start_time": session.start_time.isoformat() + "Z",
+        "end_time": session.end_time.isoformat() + "Z",
         "hours": session.hours,
         "location": session.location,
         "pin": session.pin,
-        "pin_expires_at": session.pin_expires_at.isoformat(),
+        "pin_expires_at": session.pin_expires_at.isoformat() + "Z",
         "max_students": session.max_students,
         "remaining_slots": session.remaining_slots,
         "regen_left": session.regen_left,
@@ -262,7 +279,7 @@ async def regenerate_pin(
         "module_code": session.module_code,
         "module_name": session.module_name,
         "pin": session.pin,
-        "pin_expires_at": session.pin_expires_at.isoformat(),
+        "pin_expires_at": session.pin_expires_at.isoformat() + "Z",
         "remaining_slots": session.remaining_slots,
         "regen_left": session.regen_left
     }
@@ -311,7 +328,54 @@ async def stop_session(
         "module_code": session.module_code,
         "module_name": session.module_name,
         "is_active": session.is_active,
-        "ended_at": session.end_time.isoformat()
+        "ended_at": session.end_time.isoformat() + "Z"
+    }
+
+
+@router.delete("/attendance/sessions/{session_id}")
+async def delete_session(
+    session_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Delete a session and all its attendance records - TEACHER ONLY"""
+
+    from models.attendance.models import AttendanceSession, AttendanceRecord
+
+    if current_user.role.upper() != "TEACHER":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only teachers can delete sessions"
+        )
+
+    session = db.query(AttendanceSession).filter(
+        AttendanceSession.session_id == session_id
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    if session.teacher_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only delete your own sessions"
+        )
+
+    # Delete all attendance records for this session first
+    deleted_records = db.query(AttendanceRecord).filter(
+        AttendanceRecord.session_id == session_id
+    ).delete()
+
+    # Delete the session itself
+    db.delete(session)
+    db.commit()
+
+    print(f"🗑️ Session {session_id} deleted by teacher {current_user.id} ({deleted_records} attendance records removed)")
+
+    return {
+        "message": "Session deleted successfully",
+        "session_id": session_id,
+        "deleted_attendance_records": deleted_records
     }
 
 
@@ -406,8 +470,8 @@ async def checkin(
         "module_code": session.module_code,
         "module_name": session.module_name,
         "remaining_slots": session.remaining_slots,
-        "pin_expires_at": session.pin_expires_at.isoformat(),
-        "marked_at": record.marked_at.isoformat(),
+        "pin_expires_at": session.pin_expires_at.isoformat() + "Z",
+        "marked_at": record.marked_at.isoformat() + "Z",
         "max_students": session.max_students
     }
 
@@ -444,7 +508,7 @@ async def get_student_summary(
             result.append({
                 "module_code": session.module_code,
                 "module_name": session.module_name,
-                "marked_at": record.marked_at.isoformat(),
+                "marked_at": record.marked_at.isoformat() + "Z",
                 "present": True
             })
 
@@ -639,7 +703,7 @@ async def get_teacher_sessions(
                     "student_id": record.student_id,
                     "full_name": student_row[1],
                     "profile_picture_url": f"/api/auth/users/{student_row[0]}/profile-picture",
-                    "marked_at": record.marked_at.isoformat()
+                    "marked_at": record.marked_at.isoformat() + "Z"
                 })
         
         result.append({
@@ -650,13 +714,13 @@ async def get_teacher_sessions(
             "faculty": session.faculty,
             "batch": session.batch,
             "location": session.location,
-            "start_time": session.start_time.isoformat(),
-            "end_time": session.end_time.isoformat(),
+            "start_time": session.start_time.isoformat() + "Z",
+            "end_time": session.end_time.isoformat() + "Z",
             "hours": session.hours,
             "max_students": session.max_students,
             "attendance_count": attendance_count,
             "attendance_percentage": round((attendance_count / session.max_students * 100), 2) if session.max_students > 0 else 0,
-            "created_at": session.created_at.isoformat(),
+            "created_at": session.created_at.isoformat() + "Z",
             "is_active": getattr(session, 'is_active', True),
             "attendees": attendees
         })
@@ -943,6 +1007,7 @@ async def verify_face_endpoint(request: dict, current_user: User = Depends(get_c
             "message": message
         }
 
+
     except HTTPException:
         raise
     except ImportError:
@@ -953,3 +1018,160 @@ async def verify_face_endpoint(request: dict, current_user: User = Depends(get_c
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========================================
+# SURVEY ENDPOINTS
+# ========================================
+
+def ensure_survey_ready(db: Session):
+    """Initialize survey tables if not already done"""
+    global _SURVEY_READY
+    if not _SURVEY_READY and SURVEY_AVAILABLE:
+        try:
+            init_survey_tables(db)
+            _SURVEY_READY = True
+        except Exception as e:
+            print(f"⚠️ Failed to initialize survey tables: {e}")
+
+
+def _current_user_id(user: User) -> int:
+    """Extract user ID from current user object"""
+    uid = getattr(user, "id", None)
+    if uid is None:
+        raise HTTPException(status_code=401, detail="Invalid user session")
+    return int(uid)
+
+
+@router.get("/attendance/survey/me/latest")
+async def my_latest_survey(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get the latest survey submission for the current user"""
+    if not SURVEY_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Survey functionality is not available"
+        )
+    
+    ensure_survey_ready(db)
+    user_id = _current_user_id(current_user)
+    return get_latest_survey_by_user_id(db, user_id)
+
+
+@router.post("/attendance/survey/submit")
+async def submit_survey(
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Submit a survey response
+    
+    Accepts payload like:
+    {
+      "remark": "text or null",
+      "answers": [{"question_code":"A1","value":5}, ...]
+    }
+    """
+    if not SURVEY_AVAILABLE:
+        raise HTTPException(
+            status_code=503,
+            detail="Survey functionality is not available"
+        )
+    
+    ensure_survey_ready(db)
+    user_id = _current_user_id(current_user)
+
+    answers = payload.get("answers", [])
+    remark = payload.get("remark", None)
+
+    if not answers:
+        raise HTTPException(status_code=400, detail="No answers provided")
+
+    try:
+        result = save_survey_submission(
+            db=db,
+            user_id=user_id,
+            remark=remark,
+            answers_list=answers,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to save survey: {str(e)}")
+
+
+@router.get("/attendance/survey/search")
+async def search_survey_by_student(
+    student_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Teacher endpoint: search a student's survey by registration number"""
+    if not SURVEY_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Survey functionality is not available")
+
+    ensure_survey_ready(db)
+
+    if not student_id or not student_id.strip():
+        raise HTTPException(status_code=400, detail="student_id query parameter is required")
+
+    result = get_survey_by_student_reg_no(db, student_id.strip())
+    return result
+
+
+@router.get("/attendance/survey/all")
+async def list_all_surveys(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Teacher endpoint: list all survey submissions summary"""
+    if not SURVEY_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Survey functionality is not available")
+
+    ensure_survey_ready(db)
+    return {"submissions": get_all_survey_summaries(db)}
+
+
+# ========================================
+# DELETE SESSION ENDPOINT
+# ========================================
+
+@router.delete("/attendance/sessions/{session_id}")
+async def delete_session(
+    session_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    Delete an attendance session and all its attendance records.
+    Only the teacher who created the session can delete it.
+    """
+    session = db.query(AttendanceSession).filter(
+        AttendanceSession.session_id == session_id
+    ).first()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    # Verify ownership - only the teacher who created it can delete
+    if session.teacher_id != current_user.id:
+        raise HTTPException(status_code=403, detail="You can only delete your own sessions")
+
+    # Delete all attendance records for this session first
+    deleted_records = db.query(AttendanceRecord).filter(
+        AttendanceRecord.session_id == session_id
+    ).delete(synchronize_session="fetch")
+
+    # Delete the session itself
+    db.delete(session)
+    db.commit()
+
+    return {
+        "ok": True,
+        "message": f"Session {session_id} deleted successfully",
+        "deleted_attendance_records": deleted_records
+    }

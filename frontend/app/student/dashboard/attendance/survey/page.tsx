@@ -22,46 +22,58 @@ type Question = { code: string; text: string };
 type Section = { key: "A" | "B" | "C" | "D" | "E" | "F"; title: string; questions: Question[] };
 
 const SECTIONS: Section[] = [
-  { key: "A", title: "Section A — Health and Well-Being Factors", questions: [
-    { code: "A1", text: "My class attendance is sometimes affected by health issues such as fever, headaches, or stomach pain." },
-    { code: "A2", text: "Feeling tired or not getting enough sleep affects my ability to attend morning classes." },
-    { code: "A3", text: "Ongoing or long-term health conditions sometimes interfere with my regular class attendance." },
-    { code: "A4", text: "Waking up early in the morning is often challenging and affects my attendance." },
-  ]},
-  { key: "B", title: "Section B — Personal and Self-Regulation Factors", questions: [
-    { code: "B1", text: "A lack of motivation or interest in the course content negatively affects my attendance." },
-    { code: "B2", text: "Ineffective time management, such as failing to prepare in advance, results in missed lectures." },
-    { code: "B3", text: "Family obligations sometimes interfere with my ability to attend lectures." },
-    { code: "B4", text: "Financial or household challenges occasionally hinder my participation in lectures." },
-  ]},
-  { key: "C", title: "Section C — Peer and Social Influence Factors", questions: [
-    { code: "C1", text: "The attendance behavior of my close friends influences my own attendance decisions." },
-    { code: "C2", text: "I am more likely to be absent when my friends choose not to attend lectures." },
-    { code: "C3", text: "Group discussions and collaborative activities encourage me to attend classes more regularly." },
-    { code: "C4", text: "Sitting closer to the lecturer enhances my concentration and attendance consistency." },
-    { code: "C5", text: "Seating near entrances or high-traffic areas causes distractions that reduce my willingness to remain for the full session." },
-  ]},
-  { key: "D", title: "Section D — Environmental and Classroom Factors", questions: [
-    { code: "D1", text: "Classroom temperature and ventilation conditions affect my comfort and willingness to attend." },
-    { code: "D2", text: "Excessive noise within or near the lecture hall reduces my motivation to participate." },
-    { code: "D3", text: "Lighting quality and the ability to clearly see and hear the lecturer influence my attendance." },
-    { code: "D4", text: "A clean and well-maintained classroom environment encourages regular attendance." },
-    { code: "D5", text: "Overcrowded classrooms make it difficult to concentrate and discourage attendance." },
-  ]},
-  { key: "E", title: "Section E — Academic and Teaching-Related Factors", questions: [
-    { code: "E1", text: "The lecturer’s clarity, enthusiasm, and constructive feedback motivate me to attend lectures." },
-    { code: "E2", text: "Interactive lectures that include questioning or activities increase my likelihood of attending." },
-    { code: "E3", text: "The scheduling of lectures within the timetable affects my attendance consistency." },
-    { code: "E4", text: "Regular assessments and continuous evaluation motivate me to attend lectures." },
-  ]},
-  { key: "F", title: "Section F — Temporal and Institutional Factors", questions: [
-    { code: "F1", text: "My attendance is often lower for lectures scheduled in the late evening." },
-    { code: "F2", text: "My attendance decreases immediately before or after extended holiday periods." },
-    { code: "F3", text: "Family/Friends travel plans arranged during academic weeks reduce my attendance near holidays." },
-    { code: "F4", text: "In the weeks preceding examinations, I tend to skip regular lectures to focus on exam preparation." },
-    { code: "F5", text: "During examination periods, my class attendance is lower than usual." },
-    { code: "F6", text: "When major assignments are due, I am less likely to attend lectures." },
-  ]},
+  {
+    key: "A", title: "Section A — Health and Well-Being Factors", questions: [
+      { code: "A1", text: "My class attendance is sometimes affected by health issues such as fever, headaches, or stomach pain." },
+      { code: "A2", text: "Feeling tired or not getting enough sleep affects my ability to attend morning classes." },
+      { code: "A3", text: "Ongoing or long-term health conditions sometimes interfere with my regular class attendance." },
+      { code: "A4", text: "Waking up early in the morning is often challenging and affects my attendance." },
+    ]
+  },
+  {
+    key: "B", title: "Section B — Personal and Self-Regulation Factors", questions: [
+      { code: "B1", text: "A lack of motivation or interest in the course content negatively affects my attendance." },
+      { code: "B2", text: "Ineffective time management, such as failing to prepare in advance, results in missed lectures." },
+      { code: "B3", text: "Family obligations sometimes interfere with my ability to attend lectures." },
+      { code: "B4", text: "Financial or household challenges occasionally hinder my participation in lectures." },
+    ]
+  },
+  {
+    key: "C", title: "Section C — Peer and Social Influence Factors", questions: [
+      { code: "C1", text: "The attendance behavior of my close friends influences my own attendance decisions." },
+      { code: "C2", text: "I am more likely to be absent when my friends choose not to attend lectures." },
+      { code: "C3", text: "Group discussions and collaborative activities encourage me to attend classes more regularly." },
+      { code: "C4", text: "Sitting closer to the lecturer enhances my concentration and attendance consistency." },
+      { code: "C5", text: "Seating near entrances or high-traffic areas causes distractions that reduce my willingness to remain for the full session." },
+    ]
+  },
+  {
+    key: "D", title: "Section D — Environmental and Classroom Factors", questions: [
+      { code: "D1", text: "Classroom temperature and ventilation conditions affect my comfort and willingness to attend." },
+      { code: "D2", text: "Excessive noise within or near the lecture hall reduces my motivation to participate." },
+      { code: "D3", text: "Lighting quality and the ability to clearly see and hear the lecturer influence my attendance." },
+      { code: "D4", text: "A clean and well-maintained classroom environment encourages regular attendance." },
+      { code: "D5", text: "Overcrowded classrooms make it difficult to concentrate and discourage attendance." },
+    ]
+  },
+  {
+    key: "E", title: "Section E — Academic and Teaching-Related Factors", questions: [
+      { code: "E1", text: "The lecturer’s clarity, enthusiasm, and constructive feedback motivate me to attend lectures." },
+      { code: "E2", text: "Interactive lectures that include questioning or activities increase my likelihood of attending." },
+      { code: "E3", text: "The scheduling of lectures within the timetable affects my attendance consistency." },
+      { code: "E4", text: "Regular assessments and continuous evaluation motivate me to attend lectures." },
+    ]
+  },
+  {
+    key: "F", title: "Section F — Temporal and Institutional Factors", questions: [
+      { code: "F1", text: "My attendance is often lower for lectures scheduled in the late evening." },
+      { code: "F2", text: "My attendance decreases immediately before or after extended holiday periods." },
+      { code: "F3", text: "Family/Friends travel plans arranged during academic weeks reduce my attendance near holidays." },
+      { code: "F4", text: "In the weeks preceding examinations, I tend to skip regular lectures to focus on exam preparation." },
+      { code: "F5", text: "During examination periods, my class attendance is lower than usual." },
+      { code: "F6", text: "When major assignments are due, I am less likely to attend lectures." },
+    ]
+  },
 ];
 
 const LIKERT = [
@@ -254,10 +266,6 @@ export default function Page() {
           <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
             <div>
               <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-white">Survey Form</h1>
-              <p className="text-slate-300 mt-2 text-sm md:text-base">
-                Answers will be saved with your student account (no need to enter student number).
-              </p>
-
               {submitted && createdAt && (
                 <p className="text-slate-400 mt-2 text-sm">
                   Submitted at: <span className="text-slate-200">{formatDateTimeISO(createdAt)}</span>
@@ -316,11 +324,10 @@ export default function Page() {
         {/* Message */}
         {msg && (
           <div
-            className={`mb-6 rounded-xl border px-4 py-3 text-sm md:text-base ${
-              success
+            className={`mb-6 rounded-xl border px-4 py-3 text-sm md:text-base ${success
                 ? "border-emerald-400/20 bg-emerald-500/10 text-emerald-100"
                 : "border-red-400/20 bg-red-500/10 text-red-100"
-            }`}
+              }`}
           >
             {msg}
           </div>

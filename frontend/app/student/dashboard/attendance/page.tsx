@@ -66,6 +66,8 @@ export default function StudentAttendancePage() {
   } | null>(null);
 
   const [showPermissionModal, setShowPermissionModal] = useState(false);
+  const [showSurveyPasswordModal, setShowSurveyPasswordModal] = useState(false);
+  const [surveyPassword, setSurveyPassword] = useState("");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -236,6 +238,27 @@ export default function StudentAttendancePage() {
 
   function requestCameraAccess() {
     setShowPermissionModal(true);
+  }
+
+  function openSurveyPasswordModal() {
+    setShowSurveyPasswordModal(true);
+    setSurveyPassword("");
+  }
+
+  function handleSurveyPasswordSubmit() {
+    if (surveyPassword === "0000") {
+      setShowSurveyPasswordModal(false);
+      setSurveyPassword("");
+      window.location.href = "/student/dashboard/attendance/survey";
+    } else {
+      showNotification('error', 'Incorrect password. Please try again.');
+      setSurveyPassword("");
+    }
+  }
+
+  function closeSurveyPasswordModal() {
+    setShowSurveyPasswordModal(false);
+    setSurveyPassword("");
   }
 
   function stopCamera() {
@@ -481,6 +504,12 @@ export default function StudentAttendancePage() {
           <h2 className="text-lg font-semibold text-gray-200">Student Attendance</h2>
         </div>
         <div className="flex items-center gap-3">
+          <button
+            onClick={openSurveyPasswordModal}
+            className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-colors"
+          >
+            Take a survey
+          </button>
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
           <span className="text-sm text-emerald-400 hidden sm:inline">System Online</span>
         </div>
@@ -983,6 +1012,63 @@ export default function StudentAttendancePage() {
               >
                 <Camera size={18} />
                 Allow Camera
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Survey Password Modal */}
+      {showSurveyPasswordModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-white">Survey Access</h3>
+              <button
+                onClick={closeSurveyPasswordModal}
+                className="text-gray-400 hover:text-white transition-colors"
+              >
+                <X size={24} />
+              </button>
+            </div>
+
+            <p className="text-gray-300 text-sm mb-5">
+              Please enter the 4-digit password to access the survey.
+            </p>
+
+            <div className="mb-5">
+              <label className="text-sm font-medium text-gray-300 mb-2 block">
+                Password
+              </label>
+              <input
+                type="password"
+                className="w-full rounded-lg border border-gray-600 bg-gray-700 px-4 py-3 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 tracking-widest text-white text-center text-xl"
+                value={surveyPassword}
+                onChange={(e) => setSurveyPassword(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && surveyPassword.length === 4) {
+                    handleSurveyPasswordSubmit();
+                  }
+                }}
+                inputMode="numeric"
+                maxLength={4}
+                autoFocus
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <button
+                onClick={closeSurveyPasswordModal}
+                className="flex-1 rounded-xl bg-gray-700 px-4 py-2.5 font-semibold text-white hover:bg-gray-600 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSurveyPasswordSubmit}
+                disabled={surveyPassword.length !== 4}
+                className="flex-1 rounded-xl bg-emerald-600 px-4 py-2.5 font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+              >
+                Submit
               </button>
             </div>
           </div>

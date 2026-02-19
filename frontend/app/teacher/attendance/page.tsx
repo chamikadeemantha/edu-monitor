@@ -22,6 +22,8 @@ import {
   CheckCircle,
   XCircle,
   GraduationCap,
+  ClipboardList,
+  Trash2,
 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -145,6 +147,12 @@ export default function AttendancePage() {
 
   const [showStopModal, setShowStopModal] = useState(false);
 
+  // Delete session state
+  const [deletingSessionId, setDeletingSessionId] = useState<string | null>(null);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<PastSession | null>(null);
+  const [deleteLoading, setDeleteLoading] = useState(false);
+
   const loadDetail = useCallback(async (sessionId: string) => {
     try {
       const token = localStorage.getItem("token");
@@ -175,7 +183,7 @@ export default function AttendancePage() {
     setLoadingPastSessions(true);
     try {
       const token = localStorage.getItem("token");
-      
+
       // Skip loading if no token is available
       if (!token) {
         console.log("No authentication token found, skipping past sessions load");
@@ -292,9 +300,9 @@ export default function AttendancePage() {
         body: JSON.stringify({ expiry_minutes: expiryMinutes }),
       });
       if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.detail || "Failed"); }
-      const data = (await res.json()) as SessionRes;
-      setSession(data);
-      setSavedSessions((prev) => prev.map((s) => s.session_id === data.session_id ? data : s));
+      const data = await res.json();
+      setSession((prev) => prev ? { ...prev, ...data } : prev);
+      setSavedSessions((prev) => prev.map((s) => s.session_id === data.session_id ? { ...s, ...data } : s));
       setMsg(`✅ PIN regenerated! New PIN: ${data.pin}`);
       setTimeout(() => setMsg(null), 5000);
     } catch (err: any) {
@@ -341,10 +349,31 @@ export default function AttendancePage() {
     }
   }
 
-  const expiresIn = useMemo(() => {
-    if (!session) return null;
-    return Math.max(0, Math.ceil((new Date(session.pin_expires_at).getTime() - Date.now()) / 1000));
+  // Live countdown timer for PIN expiry
+  const [expiresIn, setExpiresIn] = useState<number | null>(null);
+  const pinExpired = expiresIn !== null && expiresIn <= 0;
+
+  useEffect(() => {
+    if (!session) { setExpiresIn(null); return; }
+
+    function tick() {
+      const remaining = Math.max(0, Math.ceil((new Date(session!.pin_expires_at).getTime() - Date.now()) / 1000));
+      setExpiresIn(remaining);
+    }
+
+    tick(); // set immediately
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
   }, [session]);
+
+  function formatCountdown(secs: number | null) {
+    if (secs === null) return "-";
+    if (secs <= 0) return "EXPIRED";
+    const m = Math.floor(secs / 60);
+    const s = secs % 60;
+    if (m > 0) return `${m}m ${s.toString().padStart(2, "0")}s`;
+    return `${s}s`;
+  }
 
   const presentMap = useMemo(() => {
     const map = new Map<string, AttendanceItem>();
@@ -430,6 +459,34 @@ export default function AttendancePage() {
   }
 
   const isSessionActive = session?.is_active !== false;
+
+  async function deleteSession(sessionId: string) {
+    setDeleteLoading(true);
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API}/api/attendance/sessions/${sessionId}`, {
+        method: "DELETE",
+        headers: {
+          Accept: "application/json",
+          ...(token && { Authorization: `Bearer ${token}` }),
+        },
+      });
+      if (!res.ok) {
+        const e = await res.json().catch(() => ({}));
+        throw new Error(e.detail || `HTTP ${res.status}`);
+      }
+      setMsg("✅ Session deleted successfully");
+      setTimeout(() => setMsg(null), 5000);
+      // Refresh the list
+      loadPastSessions();
+    } catch (err: any) {
+      setMsg(`❌ Delete failed: ${err.message}`);
+    } finally {
+      setDeleteLoading(false);
+      setShowDeleteModal(false);
+      setDeleteTarget(null);
+    }
+  }
 
   return (
     <div className="flex flex-col h-full bg-gray-900 text-white overflow-hidden">
@@ -533,6 +590,95 @@ export default function AttendancePage() {
         </div>
       )}
 
+      {/* DELETE SESSION CONFIRMATION MODAL */}
+      {showDeleteModal && deleteTarget && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4 animate-fadeIn">
+          <div className="bg-gray-800 rounded-2xl border border-gray-700 max-w-md w-full shadow-2xl animate-scaleIn">
+            <div className="p-6 border-b border-gray-700">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-full bg-red-600/20 flex items-center justify-center flex-shrink-0">
+                  <Trash2 size={24} className="text-red-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-xl font-semibold text-white mb-2">
+                    Delete Session?
+                  </h3>
+                  <p className="text-sm text-gray-300">
+                    This will permanently delete this session and all its attendance records.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div className="bg-red-950/30 border border-red-700/30 rounded-lg p-4">
+                <h4 className="text-sm font-semibold text-red-300 mb-2 flex items-center gap-2">
+                  <AlertTriangle size={16} />
+                  Warning: This cannot be undone
+                </h4>
+                <ul className="space-y-2 text-sm text-red-200/80">
+                  <li className="flex items-start gap-2">
+                    <XCircle size={16} className="flex-shrink-0 mt-0.5" />
+                    <span>The session will be permanently removed</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <XCircle size={16} className="flex-shrink-0 mt-0.5" />
+                    <span><strong>{deleteTarget.attendance_count}</strong> attendance record{deleteTarget.attendance_count !== 1 ? 's' : ''} will be deleted</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <XCircle size={16} className="flex-shrink-0 mt-0.5" />
+                    <span>This will affect students&apos; overall attendance percentages</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="bg-gray-700/30 rounded-lg p-4">
+                <div className="text-xs text-gray-400 mb-2">Session Details:</div>
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Module:</span>
+                    <span className="text-white font-medium">{deleteTarget.module_code} — {deleteTarget.module_name}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Date:</span>
+                    <span className="text-white">{formatDate(deleteTarget.created_at)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-400">Attended:</span>
+                    <span className="text-white">{deleteTarget.attendance_count}/{deleteTarget.max_students} students</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="p-6 border-t border-gray-700 flex gap-3">
+              <button
+                onClick={() => { setShowDeleteModal(false); setDeleteTarget(null); }}
+                className="flex-1 rounded-xl bg-gray-700 px-4 py-3 font-semibold text-white hover:bg-gray-600 transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => deleteSession(deleteTarget.session_id)}
+                disabled={deleteLoading}
+                className="flex-1 rounded-xl bg-red-600 px-4 py-3 font-semibold text-white hover:bg-red-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {deleteLoading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 size={18} />
+                    Yes, Delete Session
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <main className="flex-1 overflow-auto p-8">
         <div className="mb-6 flex flex-col gap-3">
           <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -572,9 +718,9 @@ export default function AttendancePage() {
                 <History size={16} />
                 {showPastSessions ? "Hide" : "View"} Past Sessions
               </button>
-              <Link href="/teacher/attendance/planner"
-                className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-3 py-2 text-sm font-semibold hover:bg-indigo-500">
-                <CalendarClock size={16} /> Session Planner
+              <Link href="/teacher/attendance/survey-results"
+                className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-3 py-2 text-sm font-semibold hover:bg-amber-500">
+                <ClipboardList size={16} /> View Survey Results
               </Link>
               <button onClick={() => activeSessionId && loadDetail(activeSessionId)} disabled={!activeSessionId}
                 className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm hover:bg-white/15 disabled:opacity-50">
@@ -673,9 +819,22 @@ export default function AttendancePage() {
 
                       {expandedSession === ps.session_id && (
                         <div className="border-t border-gray-700 p-4 bg-gray-900/50">
-                          <h4 className="text-sm font-semibold text-gray-300 mb-3">
-                            Students Attended ({ps.attendees.length})
-                          </h4>
+                          <div className="flex items-center justify-between mb-3">
+                            <h4 className="text-sm font-semibold text-gray-300">
+                              Students Attended ({ps.attendees.length})
+                            </h4>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeleteTarget(ps);
+                                setShowDeleteModal(true);
+                              }}
+                              className="inline-flex items-center gap-1.5 rounded-lg bg-red-600/20 border border-red-500/30 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-600/40 transition-colors"
+                            >
+                              <Trash2 size={14} />
+                              Delete Session
+                            </button>
+                          </div>
                           {ps.attendees.length === 0 ? (
                             <div className="text-sm text-gray-500 text-center py-4">
                               No students attended this session
@@ -738,12 +897,12 @@ export default function AttendancePage() {
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
               <div className="text-sm text-gray-300 flex items-center gap-2"><Clock size={16} className="opacity-80" /> PIN Expires In</div>
-              <div className="mt-1 text-3xl font-bold">{session ? `${expiresIn ?? "-"}s` : "-"}</div>
+              <div className={`mt-1 text-3xl font-bold ${pinExpired ? "text-red-400 animate-pulse" : ""}`}>{session ? formatCountdown(expiresIn) : "-"}</div>
               <div className="text-xs text-gray-400 mt-1">Remaining slots: {session?.remaining_slots ?? "-"}</div>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
               <div className="text-sm text-gray-300 flex items-center gap-2"><AlertTriangle size={16} className="opacity-80" /> Absent Students</div>
-              <div className="mt-1 text-3xl font-bold">{session ? session.max_students - presentCount : "-"}</div>
+              <div className="mt-1 text-3xl font-bold">{session ? (session.max_students ?? 0) - presentCount : "-"}</div>
               <div className="text-xs text-gray-400 mt-1">Based on check-ins only</div>
             </div>
             <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
@@ -1007,7 +1166,7 @@ export default function AttendancePage() {
                       <div>
                         <div className="text-gray-300 text-sm">PIN</div>
                         <div className="text-4xl font-bold tracking-widest font-mono">{session.pin}</div>
-                        <div className="mt-1 text-sm text-gray-400">Expires in: <span className="text-white font-medium">{expiresIn ?? "-"}s</span></div>
+                        <div className={`mt-1 text-sm ${pinExpired ? "text-red-400 font-semibold" : "text-gray-400"}`}>Expires in: <span className={`font-medium ${pinExpired ? "text-red-400" : "text-white"}`}>{formatCountdown(expiresIn)}</span></div>
                         <div className="mt-1 text-xs text-gray-400">{session.module_code} • {session.batch} • {session.location}</div>
                       </div>
                       <div className="text-right">
@@ -1017,13 +1176,24 @@ export default function AttendancePage() {
                       </div>
                     </div>
 
+                    {/* PIN Expired Banner */}
+                    {pinExpired && (
+                      <div className="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 flex items-center gap-3">
+                        <AlertTriangle className="text-red-400 flex-shrink-0" size={20} />
+                        <div>
+                          <div className="text-red-300 font-semibold text-sm">PIN Has Expired</div>
+                          <div className="text-red-400/80 text-xs mt-0.5">Students can no longer check in. Regenerate the PIN or stop the session.</div>
+                        </div>
+                      </div>
+                    )}
+
                     <div className="mt-4 grid grid-cols-2 gap-3">
                       <button
                         onClick={regeneratePin}
                         disabled={session.regen_left <= 0 || !isSessionActive}
                         className="rounded-xl bg-emerald-600 px-4 py-2 font-semibold hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                       >
-                        {session.regen_left <= 0 ? "Regen Limit Reached" : "Regenerate PIN"}
+                        {session.regen_left <= 0 ? "Regen Limit Reached" : pinExpired ? "🔄 Regenerate PIN" : "Regenerate PIN"}
                       </button>
 
                       <button

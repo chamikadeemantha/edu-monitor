@@ -1,37 +1,35 @@
 # Fix for ChromaDB requiring newer sqlite3
 import sys
 import os
+import platform
 import ctypes
-
 
 # Fix for Protobuf conflict (MediaPipe vs others)
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
-# Attempt to force-load the newer sqlite3.dll from specific paths
-# This trick helps when the OS loader insists on using the system python's sqlite3.dll
-try:
-    # Try the one we placed in venv/DLLs
-    ctypes.CDLL(r'c:\Users\chath\Desktop\Research\Code\venv\DLLs\sqlite3.dll')
-except Exception:
+# Windows-only: load newer sqlite3.dll so ChromaDB works
+# Looks in the project's own venv/DLLs folder (cross-machine safe)
+if platform.system() == "Windows":
+    _base_dir = os.path.dirname(os.path.abspath(__file__))
+    _sqlite_candidates = [
+        os.path.join(_base_dir, "venv", "DLLs", "sqlite3.dll"),
+        os.path.join(_base_dir, "sqlite3.dll"),
+    ]
+    for _dll_path in _sqlite_candidates:
+        try:
+            ctypes.CDLL(_dll_path)
+            break
+        except Exception:
+            continue
+
+# On Mac/Linux: replace sqlite3 with pysqlite3-binary if available (for ChromaDB)
+# On Windows: pysqlite3-binary has no build, so we rely on the sqlite3.dll loaded above
+if platform.system() != "Windows":
     try:
-        # Fallback to CWD
-        ctypes.CDLL(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sqlite3.dll'))
-    except Exception:
+        __import__('pysqlite3')
+        sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+    except ImportError:
         pass
-
-try:
-    __import__('pysqlite3')
-    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-except ImportError:
-    pass
-
-# Fix for ChromaDB requiring newer sqlite3
-try:
-    __import__('pysqlite3')
-    import sys
-    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-except ImportError:
-    pass
 
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse, FileResponse

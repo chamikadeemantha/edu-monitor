@@ -15,9 +15,14 @@ logger = logging.getLogger(__name__)
 try:
     from deepface import DeepFace
     DEEPFACE_AVAILABLE = True
-except ImportError:
+    logger.info("✅ DeepFace loaded successfully")
+except ImportError as e:
     DEEPFACE_AVAILABLE = False
-    logger.warning("DeepFace not available")
+    logger.warning(f"DeepFace ImportError: {e}")
+except Exception as e:
+    # Catches TensorFlow/Keras version conflicts, missing DLLs, etc.
+    DEEPFACE_AVAILABLE = False
+    logger.warning(f"DeepFace failed to load (dependency error): {e}")
 
 
 def base64_to_image(base64_string: str) -> np.ndarray:
@@ -44,7 +49,7 @@ def verify_face_from_base64(
     tolerance: float = 0.4
 ) -> Tuple[bool, str, Optional[float]]:
     if not DEEPFACE_AVAILABLE:
-        return False, "Face recognition not available", None
+        return False, "Face recognition not available (DeepFace failed to load - check backend logs)", None
     
     temp_profile = None
     temp_selfie = None
