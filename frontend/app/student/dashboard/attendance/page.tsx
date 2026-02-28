@@ -53,6 +53,7 @@ export default function StudentAttendancePage() {
   const [loading, setLoading] = useState(false);
   const [notification, setNotification] = useState<NotificationMessage | null>(null);
   const [data, setData] = useState<MarkRes | null>(null);
+  const [attendanceCompleted, setAttendanceCompleted] = useState(false);
 
   // Camera states
   const [showCamera, setShowCamera] = useState(false);
@@ -443,7 +444,28 @@ export default function StudentAttendancePage() {
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
-        throw new Error(errorData.message || errorData.detail || "Failed to mark attendance. Please verify your PIN and try again.");
+        const errorMsg = errorData.message || errorData.detail || "";
+
+        // Handle "already marked" gracefully — not an error, just info
+        if (errorMsg.toLowerCase().includes("already marked")) {
+          showNotification('info', 'Your attendance for this session has already been recorded.');
+          setPin("");
+          setCapturedImage(null);
+          setVerificationResult(null);
+          setAttendanceCompleted(true);
+          setData({
+            session_id: "",
+            module_code: "",
+            module_name: "this session",
+            remaining_slots: 0,
+            pin_expires_at: "",
+            marked_at: new Date().toISOString(),
+          });
+          setLoading(false);
+          return;
+        }
+
+        throw new Error(errorMsg || "Failed to mark attendance. Please verify your PIN and try again.");
       }
 
       const json = (await res.json()) as MarkRes;
@@ -453,6 +475,7 @@ export default function StudentAttendancePage() {
       setPin("");
       setCapturedImage(null);
       setVerificationResult(null);
+      setAttendanceCompleted(true);
 
       if (json.module_code && json.module_name) {
         setHistory((prev) => [
@@ -604,211 +627,226 @@ export default function StudentAttendancePage() {
           </div>
         )}
 
-        <div className="bg-gray-800/70 rounded-xl border border-gray-700 shadow-sm p-6 md:p-8">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <label className="text-sm font-medium text-gray-300">
-              Student ID
-              <div className="relative mt-1.5">
-                <input
-                  className="w-full rounded-lg border border-gray-600 bg-gray-700/50 px-4 py-2.5 outline-none text-white cursor-not-allowed opacity-80"
-                  value={studentId || "Loading..."}
-                  readOnly
-                  disabled
-                />
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">
-                  Auto-filled
-                </div>
+        {attendanceCompleted ? (
+          <div className="bg-gray-800/70 rounded-xl border border-emerald-700/30 shadow-sm p-6 md:p-8">
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-emerald-600/20 flex items-center justify-center">
+                <CheckCircle size={36} className="text-emerald-400" />
               </div>
-            </label>
+              <h3 className="text-xl font-bold text-emerald-300">
+                {data?.module_code ? "Attendance Marked Successfully" : "Attendance Already Recorded"}
+              </h3>
+              {!data?.module_code && (
+                <p className="text-sm text-gray-400 mt-2">Your attendance for this session has already been recorded.</p>
+              )}
+            </div>
 
-            <label className="text-sm font-medium text-gray-300">
-              PIN (6 digits)
-              <input
-                className="mt-1.5 w-full rounded-lg border border-gray-600 bg-gray-700 px-4 py-2.5 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 tracking-widest text-white placeholder-gray-500"
-                placeholder="123456"
-                value={pin}
-                onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                inputMode="numeric"
-                maxLength={6}
-                disabled={!studentId || loading}
-              />
-            </label>
-          </div>
-
-          {/* Face Verification Section */}
-          <div className="mt-6 p-5 rounded-lg bg-gray-700/40 border border-gray-600">
-            <h3 className="text-sm font-semibold text-gray-200 mb-3 flex items-center gap-2">
-              <Camera size={18} className="text-blue-400" />
-              Face Verification {verificationResult?.success && <CheckCircle size={16} className="text-emerald-400" />}
-            </h3>
-
-            {!capturedImage && !showCamera && (
-              <button
-                onClick={requestCameraAccess}
-                disabled={!studentId || loading}
-                className="w-full rounded-xl bg-blue-600 px-4 py-3 font-semibold text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
-              >
-                <Camera size={20} />
-                Open Camera
-              </button>
-            )}
-
-            {showCamera && !capturedImage && (
-              <div className="relative">
-                <video
-                  ref={videoRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  className="w-full rounded-lg bg-black"
-                  style={{ transform: "scaleX(-1)" }}
-                />
-                <div className="mt-3 flex gap-3">
-                  <button
-                    onClick={capturePhoto}
-                    disabled={loading}
-                    className="flex-1 rounded-xl bg-emerald-600 px-4 py-2.5 font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 transition-all"
-                  >
-                    Capture Photo
-                  </button>
-                  <button
-                    onClick={stopCamera}
-                    className="rounded-xl bg-red-600 px-4 py-2.5 font-semibold text-white hover:bg-red-700 transition-all"
-                  >
-                    <X size={20} />
-                  </button>
+            {data?.module_code && (
+              <div className="p-5 rounded-lg bg-gray-700/40 border border-gray-600">
+                <div className="text-sm text-gray-300">
+                  Marked for:{" "}
+                  <span className="font-semibold text-white">
+                    {data.module_code} — {data.module_name}
+                  </span>
                 </div>
-              </div>
-            )}
 
-            {capturedImage && (
-              <div className="space-y-3">
-                <img
-                  src={capturedImage}
-                  alt="Captured"
-                  className="w-full rounded-lg border border-gray-600"
-                  style={{ transform: "scaleX(-1)" }}
-                />
-
-                {verificationResult && (
-                  <div className={`p-3 rounded-lg border ${verificationResult.success
-                    ? "border-emerald-700/30 bg-emerald-950/50 text-emerald-300"
-                    : "border-red-700/30 bg-red-950/50 text-red-300"
-                    }`}>
-                    <div className="flex items-start gap-2">
-                      {verificationResult.success ? (
-                        <CheckCircle size={20} className="flex-shrink-0 mt-0.5" />
-                      ) : (
-                        <AlertCircle size={20} className="flex-shrink-0 mt-0.5" />
-                      )}
-                      <div>
-                        <p className="font-medium">{verificationResult.message}</p>
-                        {verificationResult.confidence && (
-                          <p className="text-sm mt-1">Confidence: {verificationResult.confidence.toFixed(1)}%</p>
-                        )}
-                      </div>
-                    </div>
+                {data.marked_at && (
+                  <div className="text-sm text-gray-300 mt-1.5">
+                    Time:{" "}
+                    <span className="text-white">
+                      {new Date(data.marked_at).toLocaleString()}
+                    </span>
                   </div>
                 )}
 
-                <div className="flex gap-3">
-                  {!verificationResult && (
-                    <button
-                      onClick={verifyFace}
-                      disabled={verifying || loading}
-                      className="flex-1 rounded-xl bg-blue-600 px-4 py-2.5 font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-all"
-                    >
-                      {verifying ? "Verifying..." : "Verify Face"}
-                    </button>
-                  )}
-                  <button
-                    onClick={retakePhoto}
-                    disabled={loading}
-                    className="flex-1 rounded-xl bg-gray-600 px-4 py-2.5 font-semibold text-white hover:bg-gray-700 disabled:opacity-50 transition-all"
-                  >
-                    Retake Photo
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <button
-            onClick={submitAttendance}
-            disabled={loading || !studentId || pin.length !== 6 || !verificationResult?.success || !capturedImage}
-            className="mt-6 w-full rounded-xl bg-emerald-600 px-4 py-3 font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
-          >
-            {loading ? (
-              <>
-                <svg
-                  className="animate-spin h-5 w-5 text-white"
-                  xmlns="http://www.w3.org/2000/svg"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                >
-                  <circle
-                    className="opacity-25"
-                    cx="12"
-                    cy="12"
-                    r="10"
-                    stroke="currentColor"
-                    strokeWidth="4"
-                  />
-                  <path
-                    className="opacity-75"
-                    fill="currentColor"
-                    d="M4 12a8 8 0 018-8v8z"
-                  />
-                </svg>
-                Marking...
-              </>
-            ) : (
-              "Mark Attendance"
-            )}
-          </button>
-
-          {data?.module_code && (
-            <div className="mt-6 p-5 rounded-lg bg-gray-700/40 border border-gray-600">
-              <div className="text-sm text-gray-300">
-                Marked for:{" "}
-                <span className="font-semibold text-white">
-                  {data.module_code} — {data.module_name}
-                </span>
-              </div>
-
-              {data.marked_at && (
-                <div className="text-sm text-gray-300 mt-1.5">
-                  Time:{" "}
-                  <span className="text-white">
-                    {new Date(data.marked_at).toLocaleString()}
-                  </span>
-                </div>
-              )}
-
-              {typeof data.remaining_slots === "number" && (
-                <div className="text-sm text-gray-300 mt-1.5">
-                  Remaining slots:{" "}
-                  <span className="font-medium text-white">{data.remaining_slots}</span>
-                </div>
-              )}
-
-              {typeof progressPct === "number" && (
-                <div className="mt-4">
-                  <div className="flex justify-between text-xs text-gray-400 mb-1.5">
-                    <span>Progress: {markedCount}/{maxStudents}</span>
-                    <span>{progressPct}%</span>
+                {typeof data.remaining_slots === "number" && data.remaining_slots > 0 && (
+                  <div className="text-sm text-gray-300 mt-1.5">
+                    Remaining slots:{" "}
+                    <span className="font-medium text-white">{data.remaining_slots}</span>
                   </div>
-                  <div className="h-2.5 rounded-full bg-gray-700 overflow-hidden">
-                    <div
-                      className="h-full bg-emerald-500 transition-all duration-500"
-                      style={{ width: `${progressPct}%` }}
-                    />
+                )}
+              </div>
+            )}
+
+            <button
+              onClick={() => {
+                setAttendanceCompleted(false);
+                setData(null);
+                setPin("");
+                setCapturedImage(null);
+                setVerificationResult(null);
+                clearNotification();
+              }}
+              className="mt-6 w-full rounded-xl bg-gray-600 px-4 py-3 font-semibold text-white hover:bg-gray-700 transition-all flex items-center justify-center gap-2"
+            >
+              Mark Another Attendance
+            </button>
+          </div>
+        ) : (
+          <div className="bg-gray-800/70 rounded-xl border border-gray-700 shadow-sm p-6 md:p-8">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <label className="text-sm font-medium text-gray-300">
+                Student ID
+                <div className="relative mt-1.5">
+                  <input
+                    className="w-full rounded-lg border border-gray-600 bg-gray-700/50 px-4 py-2.5 outline-none text-white cursor-not-allowed opacity-80"
+                    value={studentId || "Loading..."}
+                    readOnly
+                    disabled
+                  />
+                  <div className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">
+                    Auto-filled
+                  </div>
+                </div>
+              </label>
+
+              <label className="text-sm font-medium text-gray-300">
+                PIN (6 digits)
+                <input
+                  className="mt-1.5 w-full rounded-lg border border-gray-600 bg-gray-700 px-4 py-2.5 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 tracking-widest text-white placeholder-gray-500"
+                  placeholder="123456"
+                  value={pin}
+                  onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  inputMode="numeric"
+                  maxLength={6}
+                  disabled={!studentId || loading}
+                />
+              </label>
+            </div>
+
+            {/* Face Verification Section */}
+            <div className="mt-6 p-5 rounded-lg bg-gray-700/40 border border-gray-600">
+              <h3 className="text-sm font-semibold text-gray-200 mb-3 flex items-center gap-2">
+                <Camera size={18} className="text-blue-400" />
+                Face Verification {verificationResult?.success && <CheckCircle size={16} className="text-emerald-400" />}
+              </h3>
+
+              {!capturedImage && !showCamera && (
+                <button
+                  onClick={requestCameraAccess}
+                  disabled={!studentId || loading}
+                  className="w-full rounded-xl bg-blue-600 px-4 py-3 font-semibold text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+                >
+                  <Camera size={20} />
+                  Open Camera
+                </button>
+              )}
+
+              {showCamera && !capturedImage && (
+                <div className="relative">
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    muted
+                    playsInline
+                    className="w-full rounded-lg bg-black"
+                    style={{ transform: "scaleX(-1)" }}
+                  />
+                  <div className="mt-3 flex gap-3">
+                    <button
+                      onClick={capturePhoto}
+                      disabled={loading}
+                      className="flex-1 rounded-xl bg-emerald-600 px-4 py-2.5 font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 transition-all"
+                    >
+                      Capture Photo
+                    </button>
+                    <button
+                      onClick={stopCamera}
+                      className="rounded-xl bg-red-600 px-4 py-2.5 font-semibold text-white hover:bg-red-700 transition-all"
+                    >
+                      <X size={20} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {capturedImage && (
+                <div className="space-y-3">
+                  <img
+                    src={capturedImage}
+                    alt="Captured"
+                    className="w-full rounded-lg border border-gray-600"
+                    style={{ transform: "scaleX(-1)" }}
+                  />
+
+                  {verificationResult && (
+                    <div className={`p-3 rounded-lg border ${verificationResult.success
+                      ? "border-emerald-700/30 bg-emerald-950/50 text-emerald-300"
+                      : "border-red-700/30 bg-red-950/50 text-red-300"
+                      }`}>
+                      <div className="flex items-start gap-2">
+                        {verificationResult.success ? (
+                          <CheckCircle size={20} className="flex-shrink-0 mt-0.5" />
+                        ) : (
+                          <AlertCircle size={20} className="flex-shrink-0 mt-0.5" />
+                        )}
+                        <div>
+                          <p className="font-medium">{verificationResult.message}</p>
+                          {verificationResult.confidence && (
+                            <p className="text-sm mt-1">Confidence: {verificationResult.confidence.toFixed(1)}%</p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex gap-3">
+                    {!verificationResult && (
+                      <button
+                        onClick={verifyFace}
+                        disabled={verifying || loading}
+                        className="flex-1 rounded-xl bg-blue-600 px-4 py-2.5 font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-all"
+                      >
+                        {verifying ? "Verifying..." : "Verify Face"}
+                      </button>
+                    )}
+                    <button
+                      onClick={retakePhoto}
+                      disabled={loading}
+                      className="flex-1 rounded-xl bg-gray-600 px-4 py-2.5 font-semibold text-white hover:bg-gray-700 disabled:opacity-50 transition-all"
+                    >
+                      Retake Photo
+                    </button>
                   </div>
                 </div>
               )}
             </div>
-          )}
-        </div>
+
+            <button
+              onClick={submitAttendance}
+              disabled={loading || !studentId || pin.length !== 6 || !verificationResult?.success || !capturedImage}
+              className="mt-6 w-full rounded-xl bg-emerald-600 px-4 py-3 font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <svg
+                    className="animate-spin h-5 w-5 text-white"
+                    xmlns="http://www.w3.org/2000/svg"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8v8z"
+                    />
+                  </svg>
+                  Marking...
+                </>
+              ) : (
+                "Mark Attendance"
+              )}
+            </button>
+          </div>
+        )}
 
         {/* Hidden canvas for photo capture */}
         <canvas ref={canvasRef} style={{ display: "none" }} />

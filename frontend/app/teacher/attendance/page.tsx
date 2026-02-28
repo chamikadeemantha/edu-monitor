@@ -24,6 +24,7 @@ import {
   GraduationCap,
   ClipboardList,
   Trash2,
+  Brain,
 } from "lucide-react";
 
 const API = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000";
@@ -721,6 +722,10 @@ export default function AttendancePage() {
               <Link href="/teacher/attendance/survey-results"
                 className="inline-flex items-center gap-2 rounded-xl bg-amber-600 px-3 py-2 text-sm font-semibold hover:bg-amber-500">
                 <ClipboardList size={16} /> View Survey Results
+              </Link>
+              <Link href="/teacher/attendance/ml-insights"
+                className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-3 py-2 text-sm font-semibold hover:from-emerald-500 hover:to-teal-500 shadow-lg shadow-emerald-500/20">
+                <Brain size={16} /> ML Insights
               </Link>
               <button onClick={() => activeSessionId && loadDetail(activeSessionId)} disabled={!activeSessionId}
                 className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm hover:bg-white/15 disabled:opacity-50">

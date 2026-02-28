@@ -228,8 +228,18 @@ def video_feed():
         media_type="multipart/x-mixed-replace; boundary=frame"
     )
 
+# ML Insights router
+try:
+    from ml.routes import router as ml_router
+    ML_AVAILABLE = True
+except ImportError:
+    ML_AVAILABLE = False
+    print("⚠️ ML Insights module not available")
+
 app.include_router(attendance_router, prefix="/api")
 app.include_router(auth_router, prefix="/api/auth")
+if ML_AVAILABLE:
+    app.include_router(ml_router, prefix="/api")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
