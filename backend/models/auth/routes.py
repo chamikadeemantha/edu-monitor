@@ -261,6 +261,104 @@ def approve_user(
     db.refresh(user)
     return user
 
+@router.put("/users/me/profile-picture")
+async def update_profile_picture(
+    profile_picture: UploadFile = File(...),
+    current_user: models.User = Depends(dependencies.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Update the current user's profile picture.
+    The new image replaces the existing one in the same database column
+    used by facial recognition, so attendance verification uses the latest photo.
+    """
+    # Read the uploaded file
+    picture_data = await profile_picture.read()
+    if not picture_data:
+        raise HTTPException(status_code=400, detail="Empty file uploaded")
+
+    # Find and update the correct profile
+    if current_user.role == models.UserRole.STUDENT:
+        profile = db.query(models.StudentProfile).filter(
+            models.StudentProfile.user_id == current_user.id
+        ).first()
+    elif current_user.role == models.UserRole.TEACHER:
+        profile = db.query(models.TeacherProfile).filter(
+            models.TeacherProfile.user_id == current_user.id
+        ).first()
+    else:
+        raise HTTPException(status_code=400, detail="Profile picture update not supported for this role")
+
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    # Replace the profile picture in-place (same column used by face recognition)
+    profile.profile_picture = picture_data
+    db.commit()
+
+    return {"message": "Profile picture updated successfully", "user_id": current_user.id}
+
+
+@router.put("/users/me/phone")
+async def update_phone_number(
+    phone_number: str = Form(...),
+    current_user: models.User = Depends(dependencies.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """Update the current user's phone number."""
+    phone_number = phone_number.strip()
+    if not phone_number:
+        raise HTTPException(status_code=400, detail="Phone number cannot be empty")
+
+    if current_user.role == models.UserRole.STUDENT:
+        profile = db.query(models.StudentProfile).filter(
+            models.StudentProfile.user_id == current_user.id
+        ).first()
+    elif current_user.role == models.UserRole.TEACHER:
+        profile = db.query(models.TeacherProfile).filter(
+            models.TeacherProfile.user_id == current_user.id
+        ).first()
+    else:
+        raise HTTPException(status_code=400, detail="Profile update not supported for this role")
+
+    if not profile:
+        raise HTTPException(status_code=404, detail="Profile not found")
+
+    profile.phone_number = phone_number
+    db.commit()
+
+    return {"message": "Phone number updated successfully", "phone_number": phone_number}
+
+
+@router.put("/users/me/password")
+async def change_password(
+    current_password: str = Form(...),
+    new_password: str = Form(...),
+    current_user: models.User = Depends(dependencies.get_current_user),
+    db: Session = Depends(get_db)
+):
+    """
+    Change the current user's password.
+    Requires the current password for verification before updating.
+    """
+    # Verify current password
+    if not utils.verify_password(current_password, current_user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    # Validate new password
+    if len(new_password) < 4:
+        raise HTTPException(status_code=400, detail="New password must be at least 4 characters long")
+
+    if current_password == new_password:
+        raise HTTPException(status_code=400, detail="New password must be different from the current password")
+
+    # Hash and save the new password
+    current_user.password_hash = utils.get_password_hash(new_password)
+    db.commit()
+
+    return {"message": "Password changed successfully"}
+
+
 @router.get("/users/me", response_model=schemas.UserResponse)
 def read_users_me(current_user: models.User = Depends(dependencies.get_current_user)):
     return current_user
