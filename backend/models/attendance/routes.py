@@ -16,9 +16,15 @@ try:
         init_survey_tables,
         save_survey_submission,
         get_latest_survey_by_user_id,
-        get_survey_by_student_reg_no,
-        get_all_survey_summaries,
+        get_student_modules,
+        get_survey_completion_status,
     )
+    # These are only in the full models layer, optional
+    try:
+        from models.attendance.survey import get_survey_by_student_reg_no, get_all_survey_summaries
+    except ImportError:
+        get_survey_by_student_reg_no = None
+        get_all_survey_summaries = None
     SURVEY_AVAILABLE = True
 except ImportError:
     SURVEY_AVAILABLE = False
@@ -1045,19 +1051,31 @@ def _current_user_id(user: User) -> int:
 
 @router.get("/attendance/survey/me/latest")
 async def my_latest_survey(
+    module_code: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get the latest survey submission for the current user"""
+    """Get the latest survey submission for the current user (optionally per module)"""
     if not SURVEY_AVAILABLE:
-        raise HTTPException(
-            status_code=503,
-            detail="Survey functionality is not available"
-        )
+        raise HTTPException(status_code=503, detail="Survey functionality is not available")
     
     ensure_survey_ready(db)
     user_id = _current_user_id(current_user)
-    return get_latest_survey_by_user_id(db, user_id)
+    return get_latest_survey_by_user_id(db, user_id, module_code=module_code)
+
+
+@router.get("/attendance/survey/me/modules")
+async def my_survey_modules(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get student's enrolled modules and survey completion status"""
+    if not SURVEY_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Survey functionality is not available")
+    
+    ensure_survey_ready(db)
+    user_id = _current_user_id(current_user)
+    return get_survey_completion_status(db, user_id)
 
 
 @router.post("/attendance/survey/submit")
@@ -1067,25 +1085,26 @@ async def submit_survey(
     current_user: User = Depends(get_current_user)
 ):
     """
-    Submit a survey response
+    Submit a survey response.
     
     Accepts payload like:
     {
       "remark": "text or null",
+      "module_code": "IT3011" or null,
       "answers": [{"question_code":"A1","value":5}, ...]
     }
+    module_code = null -> global survey (A,B factors)
+    module_code = "IT3011" -> per-module survey (C,D,E,F factors)
     """
     if not SURVEY_AVAILABLE:
-        raise HTTPException(
-            status_code=503,
-            detail="Survey functionality is not available"
-        )
+        raise HTTPException(status_code=503, detail="Survey functionality is not available")
     
     ensure_survey_ready(db)
     user_id = _current_user_id(current_user)
 
     answers = payload.get("answers", [])
     remark = payload.get("remark", None)
+    module_code = payload.get("module_code", None)
 
     if not answers:
         raise HTTPException(status_code=400, detail="No answers provided")
@@ -1096,6 +1115,7 @@ async def submit_survey(
             user_id=user_id,
             remark=remark,
             answers_list=answers,
+            module_code=module_code,
         )
         return result
     except ValueError as e:
@@ -1107,19 +1127,20 @@ async def submit_survey(
 @router.get("/attendance/survey/search")
 async def search_survey_by_student(
     student_id: str,
+    module_code: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
     """Teacher endpoint: search a student's survey by registration number"""
-    if not SURVEY_AVAILABLE:
-        raise HTTPException(status_code=503, detail="Survey functionality is not available")
+    if not SURVEY_AVAILABLE or get_survey_by_student_reg_no is None:
+        raise HTTPException(status_code=503, detail="Survey search not available")
 
     ensure_survey_ready(db)
 
     if not student_id or not student_id.strip():
         raise HTTPException(status_code=400, detail="student_id query parameter is required")
 
-    result = get_survey_by_student_reg_no(db, student_id.strip())
+    result = get_survey_by_student_reg_no(db, student_id.strip(), module_code=module_code)
     return result
 
 
@@ -1129,8 +1150,8 @@ async def list_all_surveys(
     current_user: User = Depends(get_current_user)
 ):
     """Teacher endpoint: list all survey submissions summary"""
-    if not SURVEY_AVAILABLE:
-        raise HTTPException(status_code=503, detail="Survey functionality is not available")
+    if not SURVEY_AVAILABLE or get_all_survey_summaries is None:
+        raise HTTPException(status_code=503, detail="Survey list not available")
 
     ensure_survey_ready(db)
     return {"submissions": get_all_survey_summaries(db)}

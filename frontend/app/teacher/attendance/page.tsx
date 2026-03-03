@@ -727,14 +727,6 @@ export default function AttendancePage() {
                 className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 px-3 py-2 text-sm font-semibold hover:from-emerald-500 hover:to-teal-500 shadow-lg shadow-emerald-500/20">
                 <Brain size={16} /> ML Insights
               </Link>
-              <button onClick={() => activeSessionId && loadDetail(activeSessionId)} disabled={!activeSessionId}
-                className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm hover:bg-white/15 disabled:opacity-50">
-                <RefreshCw size={16} /> Refresh Now
-              </button>
-              <button onClick={exportCSV} disabled={!session}
-                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-sm font-semibold hover:bg-emerald-500 disabled:opacity-50">
-                <Download size={16} /> Export CSV
-              </button>
             </div>
           </div>
 
@@ -828,17 +820,89 @@ export default function AttendancePage() {
                             <h4 className="text-sm font-semibold text-gray-300">
                               Students Attended ({ps.attendees.length})
                             </h4>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDeleteTarget(ps);
-                                setShowDeleteModal(true);
-                              }}
-                              className="inline-flex items-center gap-1.5 rounded-lg bg-red-600/20 border border-red-500/30 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-600/40 transition-colors"
-                            >
-                              <Trash2 size={14} />
-                              Delete Session
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const d = new Date(ps.created_at);
+                                  const dateStr = d.toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+                                  const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: true });
+                                  const fileDate = d.toISOString().slice(0, 10);
+                                  const r: string[] = [];
+                                  // Title block
+                                  r.push(`"","","",""`);
+                                  r.push(`"","ATTENDANCE SESSION REPORT","",""`);
+                                  r.push(`"","EduMonitor - ClassMaster","",""`);
+                                  r.push(`"","","",""`);
+                                  r.push(`"","","",""`);
+                                  // Session details
+                                  r.push(`"SESSION DETAILS","","",""`);
+                                  r.push(`"","","",""`);
+                                  r.push(`"Module Code","${ps.module_code}","",""`);
+                                  r.push(`"Module Name","${ps.module_name}","",""`);
+                                  r.push(`"Date","${dateStr}","",""`);
+                                  r.push(`"Time","${timeStr}","",""`);
+                                  r.push(`"Batch","${ps.batch}","",""`);
+                                  r.push(`"Location","${ps.location}","",""`);
+                                  r.push(`"Duration","${ps.hours} hour(s)","",""`);
+                                  r.push(`"Session Status","${ps.is_active ? 'Active' : 'Completed'}","",""`);
+                                  r.push(`"","","",""`);
+                                  // Summary
+                                  r.push(`"ATTENDANCE SUMMARY","","",""`);
+                                  r.push(`"","","",""`);
+                                  r.push(`"Total Enrolled Students","${ps.max_students}","",""`);
+                                  r.push(`"Students Present","${ps.attendance_count}","",""`);
+                                  r.push(`"Students Absent","${ps.max_students - ps.attendance_count}","",""`);
+                                  r.push(`"Attendance Rate","${ps.attendance_percentage.toFixed(1)}%","",""`);
+                                  r.push(`"","","",""`);
+                                  r.push(`"","","",""`);
+                                  // Attendee table
+                                  r.push(`"STUDENT ATTENDANCE LIST","","",""`);
+                                  r.push(`"","","",""`);
+                                  r.push(`"No.","Student Registration ID","Full Name","Marked At"`);
+                                  if (ps.attendees.length === 0) {
+                                    r.push(`"","No students attended this session","",""`);
+                                  } else {
+                                    ps.attendees.forEach((att: any, i: number) => {
+                                      const mDate = att.marked_at ? new Date(att.marked_at) : null;
+                                      const mStr = mDate
+                                        ? `${mDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}  ${mDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}`
+                                        : 'N/A';
+                                      r.push(`"${i + 1}","${att.student_id}","${att.full_name}","${mStr}"`);
+                                    });
+                                  }
+                                  r.push(`"","","",""`);
+                                  // Footer
+                                  r.push(`"","","",""`);
+                                  r.push(`"Report Generated","${new Date().toLocaleString('en-GB', { dateStyle: 'full', timeStyle: 'medium' })}","",""`);
+                                  r.push(`"Generated By","EduMonitor System","",""`);
+                                  // BOM + CSV
+                                  const bom = '\uFEFF';
+                                  const blob = new Blob([bom + r.join('\n')], { type: 'text/csv;charset=utf-8;' });
+                                  const url = URL.createObjectURL(blob);
+                                  const a = document.createElement('a');
+                                  a.href = url;
+                                  a.download = `${ps.module_code}_${ps.batch}_${fileDate}_Attendance_Report.csv`;
+                                  a.click();
+                                  URL.revokeObjectURL(url);
+                                }}
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600/20 border border-emerald-500/30 px-3 py-1.5 text-xs font-semibold text-emerald-300 hover:bg-emerald-600/40 transition-colors"
+                              >
+                                <Download size={14} />
+                                Download CSV
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setDeleteTarget(ps);
+                                  setShowDeleteModal(true);
+                                }}
+                                className="inline-flex items-center gap-1.5 rounded-lg bg-red-600/20 border border-red-500/30 px-3 py-1.5 text-xs font-semibold text-red-300 hover:bg-red-600/40 transition-colors"
+                              >
+                                <Trash2 size={14} />
+                                Delete Session
+                              </button>
+                            </div>
                           </div>
                           {ps.attendees.length === 0 ? (
                             <div className="text-sm text-gray-500 text-center py-4">
@@ -1366,7 +1430,7 @@ export default function AttendancePage() {
               <div className="mt-4 text-xs text-gray-500">
                 {session
                   ? `Showing real-time check-ins • ${presentCount} present • updates every ~3s`
-                  : "Create a session to start tracking attendance"}
+                  : ""}
               </div>
             </div>
           </div>

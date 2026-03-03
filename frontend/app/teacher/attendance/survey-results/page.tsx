@@ -28,9 +28,12 @@ type FactorScores = Record<string, number | null>;
 type SurveyResult = {
     found: boolean;
     has_submission: boolean;
+    is_multiple?: boolean;
+    modules?: SurveyResult[];
     submission_id?: number;
     student_reg_no?: string;
     student_name?: string;
+    module_code?: string;
     created_at?: string;
     remark?: string;
     answers?: Answer[];
@@ -41,6 +44,7 @@ type SubmissionSummary = {
     submission_id: number;
     student_user_id: number;
     student_reg_no: string;
+    module_code: string;
     created_at: string;
     student_name: string | null;
 };
@@ -190,7 +194,7 @@ export default function TeacherSurveyResultsPage() {
         loadAll();
     }, []);
 
-    async function handleSearch(regNo?: string) {
+    async function handleSearch(regNo?: string, moduleCode?: string) {
         const query = (regNo || searchQuery).trim();
         if (!query) return;
 
@@ -203,10 +207,14 @@ export default function TeacherSurveyResultsPage() {
             const token = getToken();
             if (!token) throw new Error("Not authenticated. Please log in again.");
 
-            const res = await fetch(
-                `${API}/api/attendance/survey/search?student_id=${encodeURIComponent(query)}`,
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
+            let url = `${API}/api/attendance/survey/search?student_id=${encodeURIComponent(query)}`;
+            if (moduleCode && moduleCode !== "Global") {
+                url += `&module_code=${encodeURIComponent(moduleCode)}`;
+            }
+
+            const res = await fetch(url, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
 
             const json = await res.json();
             if (!res.ok) throw new Error(json?.detail || `HTTP ${res.status}`);
@@ -238,6 +246,117 @@ export default function TeacherSurveyResultsPage() {
         if (v === 4) return "bg-emerald-500/80 border-emerald-400/50";
         if (v === 5) return "bg-cyan-500/80 border-cyan-400/50";
         return "bg-gray-600 border-gray-500";
+    }
+
+    function renderSurveyData(data: SurveyResult) {
+        const localAnswerMap: Record<string, number> = {};
+        data.answers?.forEach((a) => { localAnswerMap[a.question_code] = a.value; });
+
+        return (
+            <div className="space-y-6">
+                {/* Factor Scores */}
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] shadow-2xl p-6 md:p-8">
+                    <div className="flex items-center gap-2 mb-6">
+                        <Sparkles className="text-amber-400" size={20} />
+                        <h3 className="text-lg font-bold text-white">Factor Scores</h3>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {(["A", "B", "C", "D", "E", "F"] as const).map((key) => {
+                            const score = data.factor_scores?.[key];
+                            const pct = score != null ? (score / 5) * 100 : 0;
+                            const colors = FACTOR_COLORS[key];
+                            const section = SECTIONS.find((s) => s.key === key);
+
+                            return (
+                                <div key={key} className={`rounded-xl border ${colors.border} ${colors.bg} p-4 transition-all hover:scale-[1.02]`}>
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div>
+                                            <span className={`text-xs font-bold ${colors.text} uppercase tracking-wider`}>Factor {key}</span>
+                                            <div className="text-xs text-gray-400 mt-0.5 line-clamp-1">{section?.title}</div>
+                                        </div>
+                                        <div className={`text-2xl font-extrabold ${colors.text}`}>
+                                            {score != null ? score.toFixed(2) : "—"}
+                                        </div>
+                                    </div>
+                                    <div className="w-full h-2.5 bg-white/5 rounded-full overflow-hidden">
+                                        <div className={`h-full rounded-full ${colors.bar} transition-all duration-700`} style={{ width: `${pct}%` }} />
+                                    </div>
+                                    <div className="text-right mt-1 text-xs text-gray-500">
+                                        {score != null ? `${pct.toFixed(0)}%` : "N/A"}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {/* Detailed Answers */}
+                <div className="rounded-2xl border border-white/10 bg-white/[0.04] shadow-2xl p-6 md:p-8">
+                    <div className="flex items-center gap-2 mb-6">
+                        <BarChart3 className="text-amber-400" size={20} />
+                        <h3 className="text-lg font-bold text-white">Detailed Responses</h3>
+                        <span className="text-sm text-gray-500 ml-auto">{data.answers?.length || 0} answers</span>
+                    </div>
+
+                    <div className="space-y-3">
+                        {SECTIONS.map((section) => {
+                            const isExpanded = expandedSections.has(section.key);
+                            const colors = FACTOR_COLORS[section.key];
+                            const sectionScore = data.factor_scores?.[section.key];
+
+                            return (
+                                <div key={section.key} className={`rounded-xl border ${colors.border} overflow-hidden transition-all`}>
+                                    <button
+                                        onClick={() => toggleSection(section.key)}
+                                        className={`w-full flex items-center justify-between p-4 ${colors.bg} hover:bg-white/[0.03] transition-colors`}
+                                    >
+                                        <div className="flex items-center gap-3">
+                                            <span className={`text-sm font-bold ${colors.text}`}>Section {section.key}</span>
+                                            <span className="text-sm text-gray-300 font-medium">{section.title}</span>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <span className={`text-sm font-bold ${colors.text}`}>
+                                                {sectionScore != null ? sectionScore.toFixed(2) : "—"}
+                                            </span>
+                                            {isExpanded ? <ChevronUp size={18} className="text-gray-400" /> : <ChevronDown size={18} className="text-gray-400" />}
+                                        </div>
+                                    </button>
+
+                                    {isExpanded && (
+                                        <div className="border-t border-white/5">
+                                            {section.questions.map((q, idx) => {
+                                                const val = localAnswerMap[q.code];
+                                                return (
+                                                    <div key={q.code} className={`flex flex-col sm:flex-row sm:items-center gap-3 p-4 ${idx < section.questions.length - 1 ? "border-b border-white/5" : ""}`}>
+                                                        <div className="flex-1 min-w-0">
+                                                            <span className="text-xs text-gray-500 font-mono mr-2">{q.code}</span>
+                                                            <span className="text-sm text-gray-300">{q.text}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-2 flex-shrink-0">
+                                                            {val != null ? (
+                                                                <>
+                                                                    <span className={`inline-flex items-center justify-center w-8 h-8 rounded-lg text-sm font-bold text-white border ${getLikertColor(val)}`}>
+                                                                        {val}
+                                                                    </span>
+                                                                    <span className="text-xs text-gray-400 w-28">{LIKERT_LABELS[val]}</span>
+                                                                </>
+                                                            ) : (
+                                                                <span className="text-xs text-gray-600">Not answered</span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            </div>
+        );
     }
 
     return (
@@ -316,190 +435,62 @@ export default function TeacherSurveyResultsPage() {
                 {/* Results Section */}
                 {result && result.found && (
                     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                        {/* Student Info Card */}
-                        <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.06] to-white/[0.02] shadow-2xl p-6 md:p-8">
-                            <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-                                <div className="flex items-center gap-5">
-                                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-2xl font-bold text-white shadow-lg shadow-amber-500/30">
-                                        {result.student_name ? result.student_name.charAt(0).toUpperCase() : "?"}
+                        {/* Student Info Header */}
+                        <div className="rounded-2xl border border-white/10 bg-gradient-to-br from-white/[0.06] to-white/[0.02] shadow-2xl p-6 md:p-8 flex items-center justify-between">
+                            <div className="flex items-center gap-5">
+                                <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-2xl font-bold text-white shadow-lg shadow-amber-500/30">
+                                    {result.student_name ? result.student_name.charAt(0).toUpperCase() : "?"}
+                                </div>
+                                <div>
+                                    <h3 className="text-xl md:text-2xl font-bold text-white">
+                                        {result.student_name || "Unknown Student"}
+                                    </h3>
+                                    <div className="flex items-center gap-3 mt-1">
+                                        <span className="inline-flex items-center gap-1.5 text-sm text-gray-300 font-mono bg-white/5 px-3 py-1 rounded-lg border border-white/10">
+                                            <User size={14} />
+                                            {result.student_reg_no}
+                                        </span>
                                     </div>
-                                    <div>
-                                        <h3 className="text-xl md:text-2xl font-bold text-white">
-                                            {result.student_name || "Unknown Student"}
-                                        </h3>
-                                        <div className="flex items-center gap-3 mt-1">
-                                            <span className="inline-flex items-center gap-1.5 text-sm text-gray-300 font-mono bg-white/5 px-3 py-1 rounded-lg border border-white/10">
-                                                <User size={14} />
-                                                {result.student_reg_no}
+                                </div>
+                            </div>
+                        </div>
+
+                        {result.is_multiple && result.modules ? (
+                            <div className="space-y-8">
+                                <h4 className="text-xl font-bold text-white border-b border-white/10 pb-2">
+                                    Submitted Modules ({result.modules.length})
+                                </h4>
+                                {result.modules.map((mod, idx) => (
+                                    <div key={idx} className="space-y-6 bg-white/[0.02] p-6 rounded-2xl border border-white/5">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <ClipboardList className="text-cyan-400" size={24} />
+                                                <h3 className="text-2xl font-bold text-white font-mono">{mod.module_code}</h3>
+                                            </div>
+                                            <span className="text-sm text-gray-400">
+                                                Submitted: {formatDate(mod.created_at)}
                                             </span>
-                                            {result.created_at && (
-                                                <span className="inline-flex items-center gap-1.5 text-sm text-gray-400">
-                                                    <Calendar size={14} />
-                                                    {formatDate(result.created_at)}
-                                                </span>
-                                            )}
                                         </div>
+                                        {renderSurveyData(mod)}
                                     </div>
-                                </div>
-
-                                <div className="flex items-center gap-2 text-emerald-300 font-medium bg-emerald-500/10 border border-emerald-400/20 px-4 py-2 rounded-xl">
-                                    <CheckCircle2 size={18} />
-                                    Survey Submitted
-                                </div>
+                                ))}
                             </div>
-
-                            {result.remark && (
-                                <div className="mt-5 rounded-xl border border-white/5 bg-white/[0.03] p-4">
-                                    <div className="flex items-center gap-2 text-sm text-gray-400 mb-1">
-                                        <FileText size={14} />
-                                        Student Remark
+                        ) : (
+                            <div className="space-y-6">
+                                {result.module_code && (
+                                    <div className="flex items-center gap-3 bg-white/[0.02] p-4 rounded-xl border border-white/5">
+                                        <ClipboardList className="text-cyan-400" size={20} />
+                                        <h3 className="text-lg font-bold text-white font-mono">Module: {result.module_code}</h3>
+                                        {result.created_at && (
+                                            <span className="text-sm text-gray-400 ml-auto flex items-center gap-1">
+                                                <Calendar size={14} /> {formatDate(result.created_at)}
+                                            </span>
+                                        )}
                                     </div>
-                                    <p className="text-gray-200 text-sm leading-relaxed">{result.remark}</p>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Factor Scores */}
-                        <div className="rounded-2xl border border-white/10 bg-white/[0.04] shadow-2xl p-6 md:p-8">
-                            <div className="flex items-center gap-2 mb-6">
-                                <Sparkles className="text-amber-400" size={20} />
-                                <h3 className="text-lg font-bold text-white">Factor Scores Overview</h3>
+                                )}
+                                {renderSurveyData(result)}
                             </div>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                                {(["A", "B", "C", "D", "E", "F"] as const).map((key) => {
-                                    const score = result.factor_scores?.[key];
-                                    const pct = score != null ? (score / 5) * 100 : 0;
-                                    const colors = FACTOR_COLORS[key];
-                                    const section = SECTIONS.find((s) => s.key === key);
-
-                                    return (
-                                        <div
-                                            key={key}
-                                            className={`rounded-xl border ${colors.border} ${colors.bg} p-4 transition-all hover:scale-[1.02]`}
-                                        >
-                                            <div className="flex items-center justify-between mb-2">
-                                                <div>
-                                                    <span className={`text-xs font-bold ${colors.text} uppercase tracking-wider`}>
-                                                        Factor {key}
-                                                    </span>
-                                                    <div className="text-xs text-gray-400 mt-0.5 line-clamp-1">
-                                                        {section?.title}
-                                                    </div>
-                                                </div>
-                                                <div className={`text-2xl font-extrabold ${colors.text}`}>
-                                                    {score != null ? score.toFixed(2) : "—"}
-                                                </div>
-                                            </div>
-
-                                            <div className="w-full h-2.5 bg-white/5 rounded-full overflow-hidden">
-                                                <div
-                                                    className={`h-full rounded-full ${colors.bar} transition-all duration-700`}
-                                                    style={{ width: `${pct}%` }}
-                                                />
-                                            </div>
-                                            <div className="text-right mt-1 text-xs text-gray-500">
-                                                {score != null ? `${pct.toFixed(0)}%` : "N/A"}
-                                            </div>
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-
-                        {/* Detailed Answers by Section */}
-                        <div className="rounded-2xl border border-white/10 bg-white/[0.04] shadow-2xl p-6 md:p-8">
-                            <div className="flex items-center gap-2 mb-6">
-                                <BarChart3 className="text-amber-400" size={20} />
-                                <h3 className="text-lg font-bold text-white">Detailed Responses</h3>
-                                <span className="text-sm text-gray-500 ml-auto">
-                                    {result.answers?.length || 0} answers
-                                </span>
-                            </div>
-
-                            <div className="space-y-3">
-                                {SECTIONS.map((section) => {
-                                    const isExpanded = expandedSections.has(section.key);
-                                    const colors = FACTOR_COLORS[section.key];
-                                    const sectionScore = result.factor_scores?.[section.key];
-
-                                    return (
-                                        <div
-                                            key={section.key}
-                                            className={`rounded-xl border ${colors.border} overflow-hidden transition-all`}
-                                        >
-                                            <button
-                                                onClick={() => toggleSection(section.key)}
-                                                className={`w-full flex items-center justify-between p-4 ${colors.bg} hover:bg-white/[0.03] transition-colors`}
-                                            >
-                                                <div className="flex items-center gap-3">
-                                                    <span className={`text-sm font-bold ${colors.text}`}>
-                                                        Section {section.key}
-                                                    </span>
-                                                    <span className="text-sm text-gray-300 font-medium">
-                                                        {section.title}
-                                                    </span>
-                                                </div>
-                                                <div className="flex items-center gap-3">
-                                                    <span className={`text-sm font-bold ${colors.text}`}>
-                                                        {sectionScore != null ? sectionScore.toFixed(2) : "—"}
-                                                    </span>
-                                                    {isExpanded ? (
-                                                        <ChevronUp size={18} className="text-gray-400" />
-                                                    ) : (
-                                                        <ChevronDown size={18} className="text-gray-400" />
-                                                    )}
-                                                </div>
-                                            </button>
-
-                                            {isExpanded && (
-                                                <div className="border-t border-white/5">
-                                                    {section.questions.map((q, idx) => {
-                                                        const val = answerMap[q.code];
-                                                        return (
-                                                            <div
-                                                                key={q.code}
-                                                                className={`flex flex-col sm:flex-row sm:items-center gap-3 p-4 ${idx < section.questions.length - 1
-                                                                        ? "border-b border-white/5"
-                                                                        : ""
-                                                                    }`}
-                                                            >
-                                                                <div className="flex-1 min-w-0">
-                                                                    <span className="text-xs text-gray-500 font-mono mr-2">
-                                                                        {q.code}
-                                                                    </span>
-                                                                    <span className="text-sm text-gray-300">
-                                                                        {q.text}
-                                                                    </span>
-                                                                </div>
-                                                                <div className="flex items-center gap-2 flex-shrink-0">
-                                                                    {val != null ? (
-                                                                        <>
-                                                                            <span
-                                                                                className={`inline-flex items-center justify-center w-8 h-8 rounded-lg text-sm font-bold text-white border ${getLikertColor(val)}`}
-                                                                            >
-                                                                                {val}
-                                                                            </span>
-                                                                            <span className="text-xs text-gray-400 w-28">
-                                                                                {LIKERT_LABELS[val]}
-                                                                            </span>
-                                                                        </>
-                                                                    ) : (
-                                                                        <span className="text-xs text-gray-600">
-                                                                            Not answered
-                                                                        </span>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
+                        )}
                     </div>
                 )}
 
@@ -530,6 +521,7 @@ export default function TeacherSurveyResultsPage() {
                                     <thead>
                                         <tr className="border-b border-white/10 text-gray-400">
                                             <th className="text-left py-3 px-4 font-medium">#</th>
+                                            <th className="text-left py-3 px-4 font-medium">Module</th>
                                             <th className="text-left py-3 px-4 font-medium">Student Reg No</th>
                                             <th className="text-left py-3 px-4 font-medium">Name</th>
                                             <th className="text-left py-3 px-4 font-medium">Submitted At</th>
@@ -543,6 +535,11 @@ export default function TeacherSurveyResultsPage() {
                                                 className="border-b border-white/5 hover:bg-white/[0.03] transition-colors"
                                             >
                                                 <td className="py-3 px-4 text-gray-500">{idx + 1}</td>
+                                                <td className="py-3 px-4">
+                                                    <span className="font-mono text-cyan-300 bg-cyan-500/10 px-2 py-1 rounded-md border border-cyan-500/20 text-xs">
+                                                        {sub.module_code}
+                                                    </span>
+                                                </td>
                                                 <td className="py-3 px-4">
                                                     <span className="font-mono text-amber-300 bg-amber-500/10 px-2 py-1 rounded-md border border-amber-500/20">
                                                         {sub.student_reg_no}
@@ -558,7 +555,7 @@ export default function TeacherSurveyResultsPage() {
                                                     <button
                                                         onClick={() => {
                                                             setSearchQuery(sub.student_reg_no);
-                                                            handleSearch(sub.student_reg_no);
+                                                            handleSearch(sub.student_reg_no, sub.module_code);
                                                         }}
                                                         className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600/20 border border-amber-500/30 px-3 py-1.5 text-xs font-semibold text-amber-300 hover:bg-amber-600/30 transition-colors"
                                                     >

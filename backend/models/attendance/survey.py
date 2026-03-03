@@ -18,6 +18,20 @@ SURVEY_CODES = [
     "F1", "F2", "F3", "F4", "F5", "F6",
 ]
 
+# Personal factors (global, answered once)
+GLOBAL_CODES = [
+    "A1", "A2", "A3", "A4",
+    "B1", "B2", "B3", "B4",
+]
+
+# Module-specific factors (answered per module)
+MODULE_CODES = [
+    "C1", "C2", "C3", "C4", "C5",
+    "D1", "D2", "D3", "D4", "D5",
+    "E1", "E2", "E3", "E4",
+    "F1", "F2", "F3", "F4", "F5", "F6",
+]
+
 SECTION_MAP: Dict[str, List[str]] = {
     "A": ["A1", "A2", "A3", "A4"],
     "B": ["B1", "B2", "B3", "B4"],
@@ -31,8 +45,7 @@ SECTION_MAP: Dict[str, List[str]] = {
 def init_survey_tables(db: Session) -> None:
     """
     Creates tables if they do not exist.
-    IMPORTANT: Your DB already has survey_submissions.student_user_id (NOT NULL).
-    So we create/maintain schema using student_user_id, NOT user_id.
+    Adds module_code column for per-module surveys.
     """
     # 1) submissions table
     db.execute(text("""
@@ -40,6 +53,7 @@ def init_survey_tables(db: Session) -> None:
             id SERIAL PRIMARY KEY,
             student_user_id INTEGER NOT NULL,
             student_reg_no VARCHAR(64),
+            module_code VARCHAR(20),
             remark TEXT,
             created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
@@ -59,8 +73,20 @@ def init_survey_tables(db: Session) -> None:
         );
     """))
 
-    # 3) indexes (safe even if columns differ in older DBs)
-    # Use DO blocks so it won't crash if a column name doesn't exist.
+    # 3) Add module_code column if missing (migration for existing DBs)
+    db.execute(text("""
+    DO $$
+    BEGIN
+        IF NOT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_name='survey_submissions' AND column_name='module_code'
+        ) THEN
+            ALTER TABLE survey_submissions ADD COLUMN module_code VARCHAR(20);
+        END IF;
+    END $$;
+    """))
+
+    # 4) indexes
     db.execute(text("""
     DO $$
     BEGIN
@@ -92,7 +118,7 @@ def init_survey_tables(db: Session) -> None:
 
 def _get_student_reg_no(db: Session, user_id: int) -> Optional[str]:
     """
-    Fetch registration number from student_profiles.student_id (your screenshot shows this column).
+    Fetch registration number from student_profiles.student_id.
     If not found, returns None.
     """
     row = db.execute(
@@ -110,19 +136,22 @@ def _get_student_reg_no(db: Session, user_id: int) -> Optional[str]:
     return row[0]
 
 
-def _validate_answers(answers_list: List[Dict[str, Any]]) -> Dict[str, int]:
+def _validate_answers(answers_list: List[Dict[str, Any]], allowed_codes: List[str] = None) -> Dict[str, int]:
     """
     Convert list -> dict, validate codes and values.
+    If allowed_codes is provided, only those codes are required/accepted.
     """
     if not isinstance(answers_list, list) or len(answers_list) == 0:
         raise ValueError("Answers list is empty")
+
+    valid_codes = allowed_codes or SURVEY_CODES
 
     out: Dict[str, int] = {}
     for a in answers_list:
         code = a.get("question_code")
         value = a.get("value")
 
-        if code not in SURVEY_CODES:
+        if code not in valid_codes:
             raise ValueError(f"Invalid question_code: {code}")
 
         if value not in [1, 2, 3, 4, 5]:
@@ -130,8 +159,8 @@ def _validate_answers(answers_list: List[Dict[str, Any]]) -> Dict[str, int]:
 
         out[code] = int(value)
 
-    # require all questions answered (same behavior as your frontend)
-    missing = [c for c in SURVEY_CODES if c not in out]
+    # require all allowed questions answered
+    missing = [c for c in valid_codes if c not in out]
     if missing:
         raise ValueError(f"Missing answers for: {', '.join(missing[:10])}{'...' if len(missing) > 10 else ''}")
 
@@ -151,39 +180,52 @@ def save_survey_submission(
     user_id: int,
     remark: Optional[str],
     answers_list: List[Dict[str, Any]],
+    module_code: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     Saves submission for logged-in user.
-    Uses survey_submissions.student_user_id (NOT NULL).
-    Also stores student_reg_no from student_profiles.student_id.
+    If module_code is provided, this is a per-module survey (C,D,E,F only).
+    If module_code is None, this is a global survey (A,B only or all questions for backward compat).
     """
-    answer_map = _validate_answers(answers_list)
+    # Determine which codes to validate
+    if module_code:
+        allowed_codes = MODULE_CODES
+    else:
+        # Global submission: accept A,B codes, or all codes for backward compat
+        codes_in_submission = [a.get("question_code", "") for a in answers_list]
+        has_module_codes = any(c.startswith(("C", "D", "E", "F")) for c in codes_in_submission)
+        if has_module_codes:
+            allowed_codes = SURVEY_CODES  # backward compat: all codes
+        else:
+            allowed_codes = GLOBAL_CODES
+
+    answer_map = _validate_answers(answers_list, allowed_codes)
     factor_scores = _compute_factor_scores(answer_map)
 
     student_reg_no = _get_student_reg_no(db, user_id)
 
-    # ✅ IMPORTANT: insert student_user_id, NOT user_id
     sub_row = db.execute(
         text("""
-            INSERT INTO survey_submissions (student_user_id, student_reg_no, remark)
-            VALUES (:uid, :reg, :remark)
+            INSERT INTO survey_submissions (student_user_id, student_reg_no, module_code, remark)
+            VALUES (:uid, :reg, :mod, :remark)
             RETURNING id, created_at
         """),
-        {"uid": user_id, "reg": student_reg_no, "remark": remark},
+        {"uid": user_id, "reg": student_reg_no, "mod": module_code, "remark": remark},
     ).fetchone()
 
     submission_id = int(sub_row[0])
     created_at = sub_row[1]
 
     # insert answers
-    for code in SURVEY_CODES:
-        db.execute(
-            text("""
-                INSERT INTO survey_answers (submission_id, question_code, value)
-                VALUES (:sid, :code, :val)
-            """),
-            {"sid": submission_id, "code": code, "val": answer_map[code]},
-        )
+    for code in allowed_codes:
+        if code in answer_map:
+            db.execute(
+                text("""
+                    INSERT INTO survey_answers (submission_id, question_code, value)
+                    VALUES (:sid, :code, :val)
+                """),
+                {"sid": submission_id, "code": code, "val": answer_map[code]},
+            )
 
     db.commit()
 
@@ -191,6 +233,7 @@ def save_survey_submission(
         "ok": True,
         "has_submission": True,
         "submission_id": submission_id,
+        "module_code": module_code,
         "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at),
         "remark": remark,
         "student_reg_no": student_reg_no,
@@ -198,21 +241,34 @@ def save_survey_submission(
     }
 
 
-def get_latest_survey_by_user_id(db: Session, user_id: int) -> Dict[str, Any]:
+def get_latest_survey_by_user_id(db: Session, user_id: int, module_code: Optional[str] = None) -> Dict[str, Any]:
     """
     Returns latest submission + answers for this user.
-    Uses student_user_id.
+    If module_code is provided, returns the latest submission for that module.
+    If module_code is None, returns the latest global (A,B) submission.
     """
-    row = db.execute(
-        text("""
-            SELECT id, created_at, remark, student_reg_no
-            FROM survey_submissions
-            WHERE student_user_id = :uid
-            ORDER BY created_at DESC
-            LIMIT 1
-        """),
-        {"uid": user_id},
-    ).fetchone()
+    if module_code:
+        row = db.execute(
+            text("""
+                SELECT id, created_at, remark, student_reg_no, module_code
+                FROM survey_submissions
+                WHERE student_user_id = :uid AND module_code = :mod
+                ORDER BY created_at DESC
+                LIMIT 1
+            """),
+            {"uid": user_id, "mod": module_code},
+        ).fetchone()
+    else:
+        row = db.execute(
+            text("""
+                SELECT id, created_at, remark, student_reg_no, module_code
+                FROM survey_submissions
+                WHERE student_user_id = :uid AND (module_code IS NULL OR module_code = '')
+                ORDER BY created_at DESC
+                LIMIT 1
+            """),
+            {"uid": user_id},
+        ).fetchone()
 
     if not row:
         return {"has_submission": False, "answers": [], "factor_scores": {}}
@@ -221,8 +277,8 @@ def get_latest_survey_by_user_id(db: Session, user_id: int) -> Dict[str, Any]:
     created_at = row[1]
     remark = row[2]
     reg_no = row[3]
+    mod = row[4]
 
-    # ✅ IMPORTANT: select question_code, not "code"
     ans_rows = db.execute(
         text("""
             SELECT question_code, value
@@ -242,6 +298,7 @@ def get_latest_survey_by_user_id(db: Session, user_id: int) -> Dict[str, Any]:
     return {
         "has_submission": True,
         "submission_id": submission_id,
+        "module_code": mod,
         "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at),
         "remark": remark,
         "student_reg_no": reg_no,
@@ -250,96 +307,283 @@ def get_latest_survey_by_user_id(db: Session, user_id: int) -> Dict[str, Any]:
     }
 
 
-def get_survey_by_student_reg_no(db: Session, reg_no: str) -> Dict[str, Any]:
+def get_student_modules(db: Session, user_id: int) -> List[Dict[str, Any]]:
     """
-    Search survey submission by student registration number (e.g. IT21000000).
-    Used by teacher dashboard to look up individual student results.
+    Get the list of modules available for the student.
+    First tries modules where the student has attendance records.
+    Falls back to ALL available modules from sessions if student has no records.
     """
-    row = db.execute(
-        text("""
-            SELECT id, student_user_id, created_at, remark, student_reg_no
-            FROM survey_submissions
-            WHERE LOWER(student_reg_no) = LOWER(:reg)
-            ORDER BY created_at DESC
-            LIMIT 1
-        """),
-        {"reg": reg_no.strip()},
-    ).fetchone()
+    reg_no = _get_student_reg_no(db, user_id)
 
-    if not row:
-        return {"found": False, "has_submission": False}
+    # Try 1: Modules the student has attended
+    if reg_no:
+        rows = db.execute(
+            text("""
+                SELECT DISTINCT asess.module_code, asess.module_name
+                FROM attendance_records ar
+                JOIN attendance_sessions asess ON asess.session_id = ar.session_id
+                WHERE ar.student_id = :reg
+                ORDER BY asess.module_code
+            """),
+            {"reg": reg_no},
+        ).fetchall()
 
-    submission_id = int(row[0])
-    student_user_id = row[1]
-    created_at = row[2]
-    remark = row[3]
-    reg = row[4]
+        if rows:
+            return [{"module_code": r[0], "module_name": r[1]} for r in rows]
 
-    # get student name from student_profiles
-    student_name = None
-    profile_row = db.execute(
-        text("""
-            SELECT full_name FROM student_profiles
-            WHERE user_id = :uid
-            LIMIT 1
-        """),
-        {"uid": student_user_id},
-    ).fetchone()
-    if profile_row:
-        student_name = profile_row[0]
-
-    # get answers
-    ans_rows = db.execute(
-        text("""
-            SELECT question_code, value
-            FROM survey_answers
-            WHERE submission_id = :sid
-            ORDER BY question_code
-        """),
-        {"sid": submission_id},
-    ).fetchall()
-
-    answers = [{"question_code": r[0], "value": int(r[1])} for r in ans_rows]
-    amap = {a["question_code"]: a["value"] for a in answers}
-    factor_scores = _compute_factor_scores(amap)
-
-    return {
-        "found": True,
-        "has_submission": True,
-        "submission_id": submission_id,
-        "student_reg_no": reg,
-        "student_name": student_name,
-        "created_at": created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at),
-        "remark": remark,
-        "answers": answers,
-        "factor_scores": factor_scores,
-    }
-
-
-def get_all_survey_summaries(db: Session) -> List[Dict[str, Any]]:
-    """
-    Return a summary list of ALL survey submissions (latest per student).
-    Used by teacher dashboard for the submissions list.
-    """
+    # Fallback: ALL distinct modules from attendance sessions
     rows = db.execute(
         text("""
-            SELECT DISTINCT ON (student_reg_no)
-                ss.id, ss.student_user_id, ss.student_reg_no, ss.created_at,
-                sp.full_name
-            FROM survey_submissions ss
-            LEFT JOIN student_profiles sp ON sp.user_id = ss.student_user_id
-            WHERE ss.student_reg_no IS NOT NULL
-            ORDER BY student_reg_no, ss.created_at DESC
+            SELECT DISTINCT module_code, module_name
+            FROM attendance_sessions
+            WHERE module_code IS NOT NULL
+            ORDER BY module_code
         """)
     ).fetchall()
 
-    results = []
-    for r in rows:
-        results.append({
-            "submission_id": int(r[0]),
+    return [{"module_code": r[0], "module_name": r[1]} for r in rows]
+
+
+def get_survey_completion_status(db: Session, user_id: int) -> Dict[str, Any]:
+    """
+    Check which surveys a student has completed:
+    - Global (A,B) submission
+    - Per-module (C,D,E,F) submissions for each module
+    """
+    # Check global (A,B) submission
+    global_row = db.execute(
+        text("""
+            SELECT id, created_at FROM survey_submissions
+            WHERE student_user_id = :uid AND (module_code IS NULL OR module_code = '')
+            ORDER BY created_at DESC LIMIT 1
+        """),
+        {"uid": user_id},
+    ).fetchone()
+
+    has_global = global_row is not None
+
+    # Also check for legacy all-in-one submissions (backward compat)
+    # If a student has a submission with all A-F answers and no module_code,
+    # treat it as having completed global
+    if not has_global:
+        legacy_row = db.execute(
+            text("""
+                SELECT ss.id FROM survey_submissions ss
+                JOIN survey_answers sa ON sa.submission_id = ss.id
+                WHERE ss.student_user_id = :uid AND sa.question_code LIKE 'A%%'
+                LIMIT 1
+            """),
+            {"uid": user_id},
+        ).fetchone()
+        has_global = legacy_row is not None
+
+    # Get completed module surveys
+    module_rows = db.execute(
+        text("""
+            SELECT module_code, MAX(created_at) as last_completed
+            FROM survey_submissions
+            WHERE student_user_id = :uid AND module_code IS NOT NULL AND module_code != ''
+            GROUP BY module_code
+        """),
+        {"uid": user_id},
+    ).fetchall()
+
+    completed_modules = {
+        r[0]: r[1].isoformat() if hasattr(r[1], "isoformat") else str(r[1])
+        for r in module_rows
+    }
+
+    # Get all modules this student is enrolled in (from attendance)
+    modules = get_student_modules(db, user_id)
+
+    return {
+        "has_global": has_global,
+        "completed_modules": completed_modules,
+        "modules": modules,
+        "total_modules": len(modules),
+        "completed_count": len(completed_modules),
+    }
+
+
+def get_all_survey_summaries(db: Session) -> list:
+    """
+    Get a summary of all survey submissions.
+    Returns: list of dicts with submission_id, student_user_id, student_reg_no, created_at, student_name, module_code.
+    """
+    query = text("""
+        SELECT 
+            s.id as submission_id,
+            s.student_user_id,
+            s.student_reg_no,
+            s.module_code,
+            s.created_at,
+            COALESCE(p.full_name, u.email) as student_name
+        FROM survey_submissions s
+        LEFT JOIN users u ON s.student_user_id = u.id
+        LEFT JOIN student_profiles p ON u.id = p.user_id
+        ORDER BY s.created_at DESC
+        LIMIT 500
+    """)
+    
+    rows = db.execute(query).fetchall()
+    
+    return [
+        {
+            "submission_id": r[0],
             "student_user_id": r[1],
             "student_reg_no": r[2],
-            "created_at": r[3].isoformat() if hasattr(r[3], "isoformat") else str(r[3]),
-            "student_name": r[4],
-        })
-    return results
+            "module_code": r[3] or "Global",
+            "created_at": r[4].isoformat() if hasattr(r[4], 'isoformat') else str(r[4]),
+            "student_name": r[5]
+        }
+        for r in rows
+    ]
+
+
+def get_survey_by_student_reg_no(db: Session, reg_no: str, module_code: str = None) -> dict:
+    """
+    Get aggregated survey answers and factor scores for a student.
+    Merges Global answers with Module answers to get a complete profile (A-F).
+    If module_code is provided, returns that specific module.
+    If no module_code is provided, returns ALL completed modules for the student.
+    """
+    # Find student user details
+    student = db.execute(text("""
+        SELECT u.id, p.full_name 
+        FROM users u 
+        LEFT JOIN student_profiles p ON u.id = p.user_id
+        WHERE u.username = :reg OR p.student_id = :reg
+    """), {"reg": reg_no}).fetchone()
+    
+    if not student:
+        return {"found": False}
+        
+    uid, fname = student[0], student[1]
+    
+    # Global answers
+    global_ans = db.execute(text("""
+        SELECT sa.question_code, sa.value 
+        FROM survey_submissions ss
+        JOIN survey_answers sa ON sa.submission_id = ss.id
+        WHERE ss.student_user_id = :uid AND (ss.module_code IS NULL OR ss.module_code = '')
+        AND ss.id = (
+            SELECT MAX(id) FROM survey_submissions 
+            WHERE student_user_id = :uid AND (module_code IS NULL OR module_code = '')
+        )
+    """), {"uid": uid}).fetchall()
+    
+    global_dict = {row[0]: row[1] for row in global_ans}
+    
+    if module_code:
+        # Fetch just one specific module
+        module_ans = db.execute(text("""
+            SELECT sa.question_code, sa.value, ss.created_at, ss.module_code 
+            FROM survey_submissions ss
+            JOIN survey_answers sa ON sa.submission_id = ss.id
+            WHERE ss.student_user_id = :uid AND ss.module_code = :mc
+            AND ss.id = (
+                SELECT MAX(id) FROM survey_submissions 
+                WHERE student_user_id = :uid AND module_code = :mc
+            )
+        """), {"uid": uid, "mc": module_code}).fetchall()
+        
+        merged = dict(global_dict)
+        created_at = None
+        if module_ans:
+            created_at = module_ans[0][2]
+            merged.update({row[0]: row[1] for row in module_ans})
+            
+        factor_scores = {"A": None, "B": None, "C": None, "D": None, "E": None, "F": None}
+        for fact in factor_scores.keys():
+            codes = [k for k in merged.keys() if k.startswith(fact)]
+            if codes:
+                factor_scores[fact] = sum(merged[k] for k in codes) / len(codes)
+
+        return {
+            "found": True,
+            "has_submission": True,
+            "is_multiple": False,
+            "student_name": fname,
+            "student_reg_no": reg_no,
+            "module_code": module_code,
+            "created_at": created_at.isoformat() if hasattr(created_at, 'isoformat') else str(created_at),
+            "answers": [{"question_code": k, "value": v} for k, v in merged.items()],
+            "factor_scores": factor_scores
+        }
+    else:
+        # Fetch ALL modules for the student
+        modules_query = db.execute(text("""
+            SELECT module_code, MAX(id) as last_id
+            FROM survey_submissions
+            WHERE student_user_id = :uid AND module_code IS NOT NULL AND module_code != ''
+            GROUP BY module_code
+        """), {"uid": uid}).fetchall()
+        
+        if not modules_query:
+            # Check for legacy single-submission surveys
+            legacy_ans = db.execute(text("""
+                SELECT sa.question_code, sa.value, ss.created_at
+                FROM survey_submissions ss
+                JOIN survey_answers sa ON sa.submission_id = ss.id
+                WHERE ss.student_user_id = :uid
+                AND ss.id = (SELECT MAX(id) FROM survey_submissions WHERE student_user_id = :uid)
+            """), {"uid": uid}).fetchall()
+            
+            if not legacy_ans:
+                return {"found": True, "has_submission": False, "student_name": fname, "student_reg_no": reg_no}
+                
+            merged = {row[0]: row[1] for row in legacy_ans}
+            created_at = legacy_ans[0][2]
+            factor_scores = {"A": None, "B": None, "C": None, "D": None, "E": None, "F": None}
+            for fact in factor_scores.keys():
+                codes = [k for k in merged.keys() if k.startswith(fact)]
+                if codes:
+                    factor_scores[fact] = sum(merged[k] for k in codes) / len(codes)
+                    
+            return {
+                "found": True,
+                "has_submission": True,
+                "is_multiple": False,
+                "student_name": fname,
+                "student_reg_no": reg_no,
+                "module_code": None,
+                "created_at": created_at.isoformat() if hasattr(created_at, 'isoformat') else str(created_at),
+                "answers": [{"question_code": k, "value": v} for k, v in merged.items()],
+                "factor_scores": factor_scores
+            }
+            
+        # Compile a list of module results
+        module_results = []
+        for mc, last_id in modules_query:
+            ans = db.execute(text("""
+                SELECT sa.question_code, sa.value, ss.created_at 
+                FROM survey_submissions ss
+                JOIN survey_answers sa ON sa.submission_id = ss.id
+                WHERE ss.id = :sid
+            """), {"sid": last_id}).fetchall()
+            
+            merged = dict(global_dict)
+            merged.update({row[0]: row[1] for row in ans})
+            created_at = ans[0][2] if ans else None
+            
+            factor_scores = {"A": None, "B": None, "C": None, "D": None, "E": None, "F": None}
+            for fact in factor_scores.keys():
+                codes = [k for k in merged.keys() if k.startswith(fact)]
+                if codes:
+                    factor_scores[fact] = sum(merged[k] for k in codes) / len(codes)
+                    
+            module_results.append({
+                "module_code": mc,
+                "created_at": created_at.isoformat() if hasattr(created_at, 'isoformat') else str(created_at),
+                "answers": [{"question_code": k, "value": v} for k, v in merged.items()],
+                "factor_scores": factor_scores
+            })
+            
+        return {
+            "found": True,
+            "has_submission": True,
+            "is_multiple": True,
+            "student_name": fname,
+            "student_reg_no": reg_no,
+            "modules": module_results
+        }

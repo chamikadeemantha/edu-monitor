@@ -238,9 +238,14 @@ export default function MLInsightsPage() {
         fetchOverview();
     }, [fetchOverview]);
 
-    // Display data always from global overview (survey is collected once, not per module)
-    const displayImportance = overview?.factor_importance;
-    const displayRecommendations = overview?.recommendations;
+    // Show module-specific data when a module is selected, global overview otherwise
+    const displayImportance = (selectedModule !== "all" && moduleData?.factor_importance)
+        ? moduleData.factor_importance
+        : overview?.factor_importance;
+    const displayRecommendations = (selectedModule !== "all" && moduleData?.recommendations)
+        ? moduleData.recommendations
+        : overview?.recommendations;
+    const displayTitle = selectedModule === "all" ? "All Modules" : selectedModule;
 
     // ─── Render ──────────────────────────────────────────────
     return (
@@ -278,20 +283,6 @@ export default function MLInsightsPage() {
 
             <div style={{ maxWidth: 1400, margin: "0 auto", padding: "24px 32px" }}>
 
-                {/* Info banner */}
-                <div style={{
-                    background: "linear-gradient(135deg, rgba(16,185,129,0.08), rgba(59,130,246,0.08))",
-                    border: "1px solid rgba(16,185,129,0.2)", borderRadius: 12,
-                    padding: "16px 24px", marginBottom: 24,
-                    display: "flex", alignItems: "center", gap: 12,
-                }}>
-                    <Brain size={20} style={{ color: "#10b981", flexShrink: 0 }} />
-                    <p style={{ margin: 0, fontSize: 14, color: "#d1d5db", lineHeight: 1.5 }}>
-                        This page analyzes <strong style={{ color: "#10b981" }}>survey responses</strong> together with <strong style={{ color: "#3b82f6" }}>attendance records</strong> to
-                        find <strong style={{ color: "#f9fafb" }}>why</strong> students miss classes — not just who is absent.
-                        Only your modules are shown.
-                    </p>
-                </div>
 
                 {/* Loading / Error states */}
                 {loading && (
@@ -362,8 +353,12 @@ export default function MLInsightsPage() {
                                 },
                                 {
                                     label: "Top Barrier",
-                                    value: overview.top_barrier_factor ? overview.top_barrier_factor.split(" ")[0] : "—",
-                                    sub: overview.top_barrier_factor ?? "No barrier found",
+                                    value: (selectedModule !== "all" && displayImportance?.[0])
+                                        ? displayImportance[0].factor
+                                        : overview.top_barrier_factor ? overview.top_barrier_factor.split(" ")[0] : "—",
+                                    sub: (selectedModule !== "all" && displayImportance?.[0])
+                                        ? `${displayImportance[0].name} (${selectedModule})`
+                                        : overview.top_barrier_factor ?? "No barrier found",
                                     icon: Target,
                                     color: "#f59e0b",
                                 },
@@ -394,12 +389,18 @@ export default function MLInsightsPage() {
                                 <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
                                     {overview.module_attendance.map((mod) => {
                                         const attColor = mod.average_attendance >= 80 ? "#10b981" : mod.average_attendance >= 70 ? "#f59e0b" : "#ef4444";
+                                        const isSelected = selectedModule === mod.module_code;
                                         return (
                                             <div
                                                 key={mod.module_code}
+                                                onClick={() => handleModuleSelect(isSelected ? "all" : mod.module_code)}
                                                 style={{
-                                                    background: "#111827", borderRadius: 10, padding: "16px 20px",
-                                                    border: "1px solid #374151", transition: "all 0.2s",
+                                                    background: isSelected ? "#1e293b" : "#111827",
+                                                    borderRadius: 10, padding: "16px 20px",
+                                                    border: isSelected ? `2px solid ${attColor}` : "1px solid #374151",
+                                                    transition: "all 0.2s",
+                                                    cursor: "pointer",
+                                                    boxShadow: isSelected ? `0 0 20px ${attColor}22` : "none",
                                                 }}
                                             >
                                                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -422,6 +423,11 @@ export default function MLInsightsPage() {
                                                         <span style={{ color: "#ef4444", fontWeight: 600 }}>{mod.at_risk_count} at risk</span>
                                                     )}
                                                 </div>
+                                                {isSelected && (
+                                                    <div style={{ marginTop: 8, fontSize: 11, color: attColor, fontWeight: 600, textAlign: "center" }}>
+                                                        ▼ Showing insights for this module
+                                                    </div>
+                                                )}
                                             </div>
                                         );
                                     })}
@@ -429,98 +435,197 @@ export default function MLInsightsPage() {
                             </div>
                         )}
 
-                        {/* ─── Why Students Miss Classes + What You Can Do ──── */}
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 24 }}>
-                            {/* ─── Why Students Miss Classes ─────────────── */}
-                            <div style={{ background: "#1e293b", borderRadius: 12, padding: 24, border: "1px solid #374151" }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                                    <BarChart3 size={18} style={{ color: "#10b981" }} />
-                                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "#f9fafb" }}>
-                                        Why Students Miss Classes
-                                    </h3>
-                                </div>
-                                <p style={{ fontSize: 13, color: "#6b7280", margin: "0 0 16px", lineHeight: 1.4 }}>
-                                    Based on ML analysis of survey answers + attendance records.
-                                    Higher % = bigger impact on attendance.
-                                </p>
-
-                                {(displayImportance || []).map((fi) => (
-                                    <div key={fi.factor} style={{ marginBottom: 16 }}>
-                                        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                                            <span style={{ fontSize: 13, fontWeight: 500, color: "#d1d5db" }}>
-                                                <span style={{ color: factorColors[fi.factor] || "#10b981", fontWeight: 700 }}>{fi.factor}</span>
-                                                {"  "}{fi.name}
-                                            </span>
-                                            <span style={{ fontSize: 13, fontWeight: 700, color: factorColors[fi.factor] || "#10b981" }}>
-                                                {fi.importance_pct}%
-                                            </span>
-                                        </div>
-                                        <div style={{ background: "#374151", borderRadius: 6, height: 12, overflow: "hidden" }}>
-                                            <div
-                                                style={{
-                                                    width: `${Math.min(fi.importance_pct, 100)}%`,
-                                                    height: "100%",
-                                                    background: `linear-gradient(90deg, ${factorColors[fi.factor] || "#10b981"}, ${factorColors[fi.factor] || "#10b981"}cc)`,
-                                                    borderRadius: 6,
-                                                    transition: "width 0.8s ease-out",
-                                                }}
-                                            />
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-
-                            {/* ─── What You Can Do ────────────────────────── */}
-                            <div style={{ background: "#1e293b", borderRadius: 12, padding: 24, border: "1px solid #374151" }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
-                                    <Lightbulb size={18} style={{ color: "#f59e0b" }} />
-                                    <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "#f9fafb" }}>What You Can Do</h3>
-                                </div>
-                                <p style={{ fontSize: 13, color: "#6b7280", margin: "0 0 16px" }}>
-                                    Actionable steps based on the top attendance barriers.
-                                </p>
-
-                                {(displayRecommendations || []).map((rec, i) => {
-                                    const config = severityConfig[rec.severity] || severityConfig.info;
-                                    const Icon = config.icon;
-                                    return (
-                                        <div
-                                            key={i}
-                                            style={{
-                                                background: config.bg,
-                                                border: `1px solid ${config.border}33`,
-                                                borderLeft: `4px solid ${config.border}`,
-                                                borderRadius: 8,
-                                                padding: 16,
-                                                marginBottom: 12,
-                                            }}
-                                        >
-                                            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                                                <Icon size={16} style={{ color: config.border }} />
-                                                <span style={{ fontSize: 11, fontWeight: 700, color: config.border, letterSpacing: 0.5 }}>
-                                                    {config.label}
-                                                </span>
-                                                {rec.importance_pct && (
-                                                    <span style={{ fontSize: 11, color: "#6b7280", marginLeft: 4 }}>({rec.importance_pct}% impact)</span>
-                                                )}
-                                            </div>
-                                            <p style={{ fontSize: 14, fontWeight: 600, color: "#f9fafb", margin: "0 0 8px" }}>{rec.title}</p>
-                                            <ul style={{ margin: 0, paddingLeft: 20 }}>
-                                                {rec.actions.map((action, j) => (
-                                                    <li key={j} style={{ fontSize: 13, color: "#d1d5db", marginBottom: 4 }}>{action}</li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                    );
-                                })}
-
-                                {(!displayRecommendations || displayRecommendations.length === 0) && (
-                                    <p style={{ color: "#6b7280", fontSize: 14, textAlign: "center", padding: 20 }}>
-                                        No recommendations available yet.
-                                    </p>
-                                )}
-                            </div>
+                        {/* ─── Module Filter Pills ───────────────────────── */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+                            <span style={{ fontSize: 13, color: "#6b7280", fontWeight: 500 }}>Analyze:</span>
+                            <button
+                                onClick={() => handleModuleSelect("all")}
+                                style={{
+                                    padding: "6px 16px", borderRadius: 20, fontSize: 13, fontWeight: 600,
+                                    border: selectedModule === "all" ? "2px solid #10b981" : "1px solid #374151",
+                                    background: selectedModule === "all" ? "rgba(16,185,129,0.15)" : "#1e293b",
+                                    color: selectedModule === "all" ? "#10b981" : "#9ca3af",
+                                    cursor: "pointer", transition: "all 0.2s",
+                                }}
+                            >
+                                All Modules
+                            </button>
+                            {availableModules.map(mod => (
+                                <button
+                                    key={mod}
+                                    onClick={() => handleModuleSelect(mod)}
+                                    style={{
+                                        padding: "6px 16px", borderRadius: 20, fontSize: 13, fontWeight: 600,
+                                        border: selectedModule === mod ? "2px solid #8b5cf6" : "1px solid #374151",
+                                        background: selectedModule === mod ? "rgba(139,92,246,0.15)" : "#1e293b",
+                                        color: selectedModule === mod ? "#8b5cf6" : "#9ca3af",
+                                        cursor: "pointer", transition: "all 0.2s",
+                                    }}
+                                >
+                                    {mod}
+                                </button>
+                            ))}
                         </div>
+
+                        {/* Loading state for module insights */}
+                        {moduleLoading && (
+                            <div style={{ textAlign: "center", padding: 40, marginBottom: 24 }}>
+                                <Activity size={32} style={{ color: "#8b5cf6", animation: "pulse 2s infinite" }} />
+                                <p style={{ color: "#9ca3af", marginTop: 12, fontSize: 14 }}>Loading module insights for {selectedModule}...</p>
+                            </div>
+                        )}
+
+                        {/* ─── Why Students Miss Classes + What You Can Do ──── */}
+                        {!moduleLoading && (
+                            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 24, marginBottom: 24 }}>
+                                {/* ─── Why Students Miss Classes ─────────────── */}
+                                <div style={{ background: "#1e293b", borderRadius: 12, padding: 24, border: "1px solid #374151" }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                                        <BarChart3 size={18} style={{ color: "#10b981" }} />
+                                        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "#f9fafb" }}>
+                                            {selectedModule === "all" ? "Why Students Miss Classes" : `Why Students Miss ${selectedModule}`}
+                                        </h3>
+                                    </div>
+                                    {selectedModule !== "all" && (
+                                        <p style={{ fontSize: 12, color: "#8b5cf6", margin: "0 0 10px", fontWeight: 500 }}>
+                                            Module-specific factor analysis for {selectedModule}
+                                        </p>
+                                    )}
+
+
+                                    {(displayImportance || []).map((fi) => (
+                                        <div key={fi.factor} style={{ marginBottom: 16 }}>
+                                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+                                                <span style={{ fontSize: 13, fontWeight: 500, color: "#d1d5db" }}>
+                                                    <span style={{ color: factorColors[fi.factor] || "#10b981", fontWeight: 700 }}>{fi.factor}</span>
+                                                    {"  "}{fi.name}
+                                                </span>
+                                                <span style={{ fontSize: 13, fontWeight: 700, color: factorColors[fi.factor] || "#10b981" }}>
+                                                    {fi.importance_pct}%
+                                                </span>
+                                            </div>
+                                            <div style={{ background: "#374151", borderRadius: 6, height: 12, overflow: "hidden" }}>
+                                                <div
+                                                    style={{
+                                                        width: `${Math.min(fi.importance_pct, 100)}%`,
+                                                        height: "100%",
+                                                        background: `linear-gradient(90deg, ${factorColors[fi.factor] || "#10b981"}, ${factorColors[fi.factor] || "#10b981"}cc)`,
+                                                        borderRadius: 6,
+                                                        transition: "width 0.8s ease-out",
+                                                    }}
+                                                />
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* ─── What You Can Do ────────────────────────── */}
+                                <div style={{ background: "#1e293b", borderRadius: 12, padding: 24, border: "1px solid #374151" }}>
+                                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                                        <Lightbulb size={18} style={{ color: "#f59e0b" }} />
+                                        <h3 style={{ margin: 0, fontSize: 16, fontWeight: 600, color: "#f9fafb" }}>What You Can Do</h3>
+                                    </div>
+                                    <p style={{ fontSize: 13, color: "#6b7280", margin: "0 0 16px" }}>
+                                        Actionable steps based on the top attendance barriers.
+                                    </p>
+
+                                    {(displayRecommendations || []).map((rec, i) => {
+                                        const config = severityConfig[rec.severity] || severityConfig.info;
+                                        const Icon = config.icon;
+                                        return (
+                                            <div
+                                                key={i}
+                                                style={{ position: "relative" }}
+                                                onMouseEnter={(e) => {
+                                                    const popup = e.currentTarget.querySelector('.rec-popup') as HTMLElement;
+                                                    if (popup) { popup.style.display = "block"; }
+                                                }}
+                                                onMouseLeave={(e) => {
+                                                    const popup = e.currentTarget.querySelector('.rec-popup') as HTMLElement;
+                                                    if (popup) { popup.style.display = "none"; }
+                                                }}
+                                            >
+                                                {/* Compact card — always visible */}
+                                                <div style={{
+                                                    background: config.bg,
+                                                    border: `1px solid ${config.border}33`,
+                                                    borderLeft: `4px solid ${config.border}`,
+                                                    borderRadius: 10,
+                                                    padding: "14px 18px",
+                                                    marginBottom: 10,
+                                                    cursor: "pointer",
+                                                    transition: "all 0.2s",
+                                                }}>
+                                                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                                        <Icon size={18} style={{ color: config.border, flexShrink: 0 }} />
+                                                        <span style={{ fontSize: 11, fontWeight: 700, color: config.border, letterSpacing: 0.5 }}>
+                                                            {config.label}
+                                                        </span>
+                                                        {rec.importance_pct && (
+                                                            <span style={{ fontSize: 11, color: "#6b7280", marginLeft: 4 }}>({rec.importance_pct}% impact)</span>
+                                                        )}
+                                                    </div>
+                                                    <p style={{ fontSize: 15, fontWeight: 600, color: "#f9fafb", margin: "6px 0 0" }}>
+                                                        {rec.title}
+                                                    </p>
+                                                    <p style={{ fontSize: 12, color: "#6b7280", margin: "4px 0 0" }}>Hover to see suggestions →</p>
+                                                </div>
+
+                                                {/* Big popup overlay */}
+                                                <div
+                                                    className="rec-popup"
+                                                    style={{
+                                                        display: "none",
+                                                        position: "fixed",
+                                                        top: "50%",
+                                                        left: "50%",
+                                                        transform: "translate(-50%, -50%)",
+                                                        zIndex: 1000,
+                                                        background: "#1e293b",
+                                                        border: `2px solid ${config.border}`,
+                                                        borderRadius: 16,
+                                                        padding: "32px 36px",
+                                                        maxWidth: 600,
+                                                        width: "90vw",
+                                                        boxShadow: `0 20px 60px rgba(0,0,0,0.6), 0 0 40px ${config.border}22`,
+                                                    }}
+                                                >
+                                                    <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
+                                                        <Icon size={24} style={{ color: config.border }} />
+                                                        <span style={{ fontSize: 13, fontWeight: 700, color: config.border, letterSpacing: 0.5 }}>
+                                                            {config.label}
+                                                        </span>
+                                                        {rec.importance_pct && (
+                                                            <span style={{ fontSize: 13, color: "#9ca3af" }}>— {rec.importance_pct}% impact</span>
+                                                        )}
+                                                    </div>
+                                                    <h3 style={{ fontSize: 20, fontWeight: 700, color: "#f9fafb", margin: "0 0 10px" }}>{rec.title}</h3>
+                                                    {rec.description && (
+                                                        <p style={{ fontSize: 15, color: "#9ca3af", margin: "0 0 16px", lineHeight: 1.6 }}>{rec.description}</p>
+                                                    )}
+                                                    <ul style={{ margin: 0, paddingLeft: 20 }}>
+                                                        {rec.actions.map((action, j) => (
+                                                            <li key={j} style={{
+                                                                fontSize: 16,
+                                                                color: "#e5e7eb",
+                                                                marginBottom: 10,
+                                                                lineHeight: 1.6,
+                                                            }}>{action}</li>
+                                                        ))}
+                                                    </ul>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+
+                                    {(!displayRecommendations || displayRecommendations.length === 0) && (
+                                        <p style={{ color: "#6b7280", fontSize: 14, textAlign: "center", padding: 20 }}>
+                                            No recommendations available yet.
+                                        </p>
+                                    )}
+                                </div>
+                            </div>
+                        )}
 
                         {/* ─── Last Analyzed ──────────────────────────────────── */}
                         {overview?.last_trained_at && (
