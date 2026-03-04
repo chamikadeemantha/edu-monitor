@@ -1,5 +1,5 @@
 # Performance Module
-# AI-powered lecture content processing with Ollama LLM and ChromaDB
+# AI-powered lecture content processing with Ollama LLM and Qdrant
 
 from .routes import router
 from .llm_service import (

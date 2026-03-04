@@ -253,15 +253,10 @@ def run_inference(video_path=None, show_video=False):
 
         if run_heavy:
             # Run YOLO tracking
-            # FORCE GPU: device=0
-            try:
-                # REDUCED imgsz to 640 from 1280 for speed. 
-                # Conf=0.25 (standard) to reduce false positives if any.
-                results = model.track(frame, device="cuda", classes=[0], verbose=False, persist=True, conf=0.10, imgsz=960)
-            except Exception as e:
-                # Fallback to CPU if GPU fails
-                print(f"Tracking error (trying CPU fallback): {e}")
-                results = model.track(frame, device="cpu", classes=[0], verbose=False, persist=True, conf=0.10, imgsz=960)
+            # Auto-detect device (avoids noisy fallback errors every frame)
+            import torch
+            _device = "cuda" if torch.cuda.is_available() else "cpu"
+            results = model.track(frame, device=_device, classes=[0], verbose=False, persist=True, conf=0.10, imgsz=960)
 
             frame_boxes = results[0].boxes
             last_detections = []

@@ -1,36 +1,8 @@
-# Fix for ChromaDB requiring newer sqlite3
 import sys
 import os
-import ctypes
 
 # Fix for Protobuf conflict (MediaPipe vs others)
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
-
-# Attempt to force-load the newer sqlite3.dll from specific paths
-# This trick helps when the OS loader insists on using the system python's sqlite3.dll
-try:
-    # Try the one we placed in venv/DLLs
-    ctypes.CDLL(r'c:\Users\chath\Desktop\Research\Code\venv\DLLs\sqlite3.dll')
-except Exception:
-    try:
-        # Fallback to CWD
-        ctypes.CDLL(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sqlite3.dll'))
-    except Exception:
-        pass
-
-try:
-    __import__('pysqlite3')
-    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-except ImportError:
-    pass
-
-# Fix for ChromaDB requiring newer sqlite3
-try:
-    __import__('pysqlite3')
-    import sys
-    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-except ImportError:
-    pass
 
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse, FileResponse
