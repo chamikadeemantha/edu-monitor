@@ -17,6 +17,9 @@ export const metadata: Metadata = {
   description: "AI-powered student engagement monitoring system",
 };
 
+import { AuthProvider } from "@/context/AuthContext";
+import Navbar from "@/components/Navbar";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -28,7 +31,14 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
         suppressHydrationWarning
       >
-        {children}
+        <AuthProvider>
+          <div className="flex flex-col min-h-screen">
+            <Navbar />
+            <div className="flex-1">
+              {children}
+            </div>
+          </div>
+        </AuthProvider>
       </body>
     </html>
   );

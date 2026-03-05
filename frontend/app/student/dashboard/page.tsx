@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useRef, useEffect } from 'react';
+import { useAuth, UserRole } from "@/context/AuthContext";
 import Link from 'next/link';
 import {
   BookOpen,
@@ -319,49 +320,6 @@ export default function StudentDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
-      {/* Header */}
-      <nav className="bg-gray-800 border-b border-gray-700 px-8 py-4 flex justify-between items-center">
-        <div className="flex items-center gap-3">
-          <div className="bg-gradient-to-r from-emerald-500 to-teal-500 p-2.5 rounded-xl">
-            <GraduationCap size={22} className="text-white" />
-          </div>
-          <div>
-            <h1 className="font-bold text-lg">Student Portal</h1>
-            <p className="text-xs text-gray-400">AI-Powered Learning</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <Link
-            href="/student/dashboard/attendance"
-            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium"
-          >
-            <UserCheck size={16} />
-            Attendance
-          </Link>
-          {/* Demo Quiz Button */}
-          <button
-            onClick={triggerQuiz}
-            className="relative flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium"
-          >
-            <Brain size={16} />
-            Demo Quiz
-            {quizNotification && (
-              <span className="absolute -top-1 -right-1 flex h-4 w-4">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-4 w-4 bg-red-500 text-[10px] items-center justify-center">!</span>
-              </span>
-            )}
-          </button>
-          <div className="flex items-center gap-2 bg-gray-700/50 px-3 py-1.5 rounded-lg">
-            <FileText size={14} className="text-emerald-400" />
-            <span className="text-sm">{contentCount ?? 0} content chunks</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-gray-400">Welcome, <strong className="text-white">Alex</strong></span>
-            <div className="w-9 h-9 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center font-bold">A</div>
-          </div>
-        </div>
-      </nav>
 
       <main className="max-w-7xl mx-auto p-8">
         {/* AI Learning Assistant - PRIORITY SECTION */}
