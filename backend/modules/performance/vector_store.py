@@ -1,7 +1,8 @@
 """
 Vector Store Service using ChromaDB
 Handles embedding storage and similarity search for RAG.
-Includes graceful error handling for missing dependencies.
+Uses ChromaDB's built-in ONNX embedding (avoids PyTorch/sentence-transformers
+thread conflicts with YOLO inference on Windows).
 """
 import logging
 from typing import List, Dict, Optional, Tuple
@@ -10,37 +11,6 @@ import hashlib
 
 # Configure logging
 logger = logging.getLogger(__name__)
-
-# Initialize the embedding model (runs locally, free)
-_embedding_model = None
-_embedding_model_error = None
-
-
-def get_embedding_model():
-    """Lazy load the embedding model with error handling."""
-    global _embedding_model, _embedding_model_error
-    
-    if _embedding_model_error:
-        raise _embedding_model_error
-    
-    if _embedding_model is None:
-        try:
-            from sentence_transformers import SentenceTransformer
-            logger.info("Loading sentence-transformers embedding model...")
-            # Using a lightweight but effective model
-            _embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
-            logger.info("✅ Embedding model loaded successfully")
-        except ImportError as e:
-            _embedding_model_error = e
-            logger.error("❌ sentence-transformers not installed. Run: pip install sentence-transformers")
-            raise
-        except Exception as e:
-            _embedding_model_error = e
-            logger.error(f"❌ Failed to load embedding model: {e}")
-            raise
-    
-    return _embedding_model
-
 
 # ChromaDB client (persistent storage)
 _chroma_client = None
@@ -74,19 +44,18 @@ def get_chroma_client():
 
 
 def get_or_create_collection(collection_name: str = "lecture_content"):
-    """Get or create a collection for storing lecture content."""
+    """Get or create a collection for storing lecture content.
+    
+    Uses ChromaDB's built-in default embedding function (ONNX-based),
+    which avoids PyTorch threading conflicts on Windows.
+    """
     client = get_chroma_client()
+    # Don't specify an embedding_function — ChromaDB will use its
+    # default ONNX-based all-MiniLM-L6-v2 (no PyTorch needed)
     return client.get_or_create_collection(
         name=collection_name,
         metadata={"description": "Lecture slides and transcripts"}
     )
-
-
-def generate_embeddings(texts: List[str]) -> List[List[float]]:
-    """Generate embeddings for a list of texts."""
-    model = get_embedding_model()
-    embeddings = model.encode(texts, convert_to_numpy=True)
-    return embeddings.tolist()
 
 
 def generate_doc_id(text: str, source: str) -> str:
@@ -104,6 +73,9 @@ def add_documents(
     """
     Add documents to the vector store.
     
+    ChromaDB will automatically generate embeddings using its built-in
+    ONNX embedding function (no PyTorch/sentence-transformers needed).
+    
     Args:
         texts: List of text chunks to store
         source: Source identifier (e.g., "slides", "transcript")
@@ -119,10 +91,6 @@ def add_documents(
     try:
         collection = get_or_create_collection(collection_name)
         
-        # Generate embeddings
-        logger.debug(f"Generating embeddings for {len(texts)} texts")
-        embeddings = generate_embeddings(texts)
-        
         # Prepare documents
         ids = [generate_doc_id(text, source) for text in texts]
         metadatas = [
@@ -134,10 +102,10 @@ def add_documents(
             for i in range(len(texts))
         ]
         
-        # Add to collection (upsert to handle duplicates)
+        # Add to collection — let ChromaDB handle embeddings internally
+        # (uses ONNX runtime, avoids PyTorch thread conflicts)
         collection.upsert(
             ids=ids,
-            embeddings=embeddings,
             documents=texts,
             metadatas=metadatas
         )
@@ -158,6 +126,7 @@ def search_similar(
 ) -> List[Tuple[str, float, Dict]]:
     """
     Search for similar documents.
+    Uses ChromaDB's built-in embedding for the query as well.
     
     Args:
         query: Search query
@@ -171,17 +140,14 @@ def search_similar(
     try:
         collection = get_or_create_collection(collection_name)
         
-        # Generate query embedding
-        query_embedding = generate_embeddings([query])[0]
-        
         # Build where filter
         where_filter = None
         if source_filter:
             where_filter = {"source": source_filter}
         
-        # Search
+        # Search using query_texts — ChromaDB embeds the query internally
         results = collection.query(
-            query_embeddings=[query_embedding],
+            query_texts=[query],
             n_results=n_results,
             where=where_filter,
             include=["documents", "distances", "metadatas"]

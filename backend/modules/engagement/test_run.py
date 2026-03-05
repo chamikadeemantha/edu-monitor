@@ -9,7 +9,7 @@ from backend.modules.engagement.run_inference import run_inference
 # Mock the current directory to be where run_inference is, so it finds models
 os.chdir(current_dir)
 
-print("Starting inference test...")
+print("Starting inference test...") 
 try:
     # Run for 150 frames (approx 6 seconds) to trigger the feature extraction logic (every 5 heavy frames = 10 frames? No, stride 2 * 5 = 10 frames... wait. 
     # Logic: frame_count % (FRAME_STRIDE * 5) == 0. Stride=2 => every 10 frames.

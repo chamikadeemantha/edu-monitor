@@ -169,40 +169,7 @@ def run_inference(video_path=None, show_video=False):
         print(f"Error opening video {video_path}", flush=True)
         return
 
-    # --- Pre-load frames for Boomerang Loop (max 7s) ---
-    print("Buffering frames for boomerang loop...", flush=True)
-    frames_buffer = []
-    
-    while True:
-        ret, raw_frame = cap.read()
-        if not ret:
-            break
-            
-        # Stop buffering after 7 seconds
-        if cap.get(cv2.CAP_PROP_POS_MSEC) > 7000:
-            break
-            
-        # Resize immediately to store "ready" frames (saves memory/CPU)
-        h, w = raw_frame.shape[:2]
-        target_w = 1280
-        if w > target_w:
-            scale = target_w / w
-            new_h = int(h * scale)
-            raw_frame = cv2.resize(raw_frame, (target_w, new_h))
-            
-        frames_buffer.append(raw_frame)
-        
-    cap.release()
-    print(f"Buffered {len(frames_buffer)} frames for looping.", flush=True)
-    
-    if not frames_buffer:
-        print("Error: No frames loaded.")
-        return
-
-    # Boomerang state
-    buffer_idx = 0
-    direction = 1 # 1 for forward, -1 for backward
-    # ---------------------------------------------------
+    print("Starting video playback (full video, no loop)...", flush=True)
 
     history = defaultdict(lambda: deque(maxlen=WINDOW_FRAMES))
     # 4. Tracking Stability: Smooth predictions
@@ -227,23 +194,22 @@ def run_inference(video_path=None, show_video=False):
     print("Starting inference loop...")
 
     while True:
-        # Get frame from buffer
-        frame = frames_buffer[buffer_idx].copy() # Copy essential to avoid drawing on cached frame
+        # Read frame from video
+        ret, frame = cap.read()
+        if not ret:
+            print("Video playback complete.", flush=True)
+            break
         
-        # Update index for next iteration (Boomerang Logic)
-        buffer_idx += direction
-        
-        # Bounce at ends
-        if buffer_idx >= len(frames_buffer):
-            buffer_idx = len(frames_buffer) - 2
-            direction = -1
-        elif buffer_idx < 0:
-            buffer_idx = 1
-            direction = 1
+        # Resize frame if needed
+        h, w = frame.shape[:2]
+        target_w = 1280
+        if w > target_w:
+            scale = target_w / w
+            new_h = int(h * scale)
+            frame = cv2.resize(frame, (target_w, new_h))
+            h, w = frame.shape[:2]
 
         frame_count += 1
-        
-        h, w = frame.shape[:2] # Get dimensions of the pre-sized frame
             
         # Define zone limits for every frame
         y_back_limit = h * ZONE_SPLITS["back"]
