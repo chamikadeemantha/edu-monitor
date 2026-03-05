@@ -40,6 +40,7 @@ interface AuthContextType {
     token: string | null;
     login: (token: string) => void;
     logout: () => void;
+    refreshUser: () => void;
     isAuthenticated: boolean;
     isLoading: boolean;
 }
@@ -100,6 +101,11 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         router.push("/login");
     };
 
+    const refreshUser = () => {
+        const t = token || localStorage.getItem("token");
+        if (t) fetchUser(t);
+    };
+
     return (
         <AuthContext.Provider
             value={{
@@ -107,6 +113,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
                 token,
                 login,
                 logout,
+                refreshUser,
                 isAuthenticated: !!user,
                 isLoading,
             }}

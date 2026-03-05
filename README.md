@@ -52,10 +52,15 @@ py -3.10 -m venv venv
 
 # 3. Install dependencies
 pip install -r requirements.txt
+pip install deepface
 
 # 4. Initialize the Database
 # This script drops existing tables and prepares for fresh migration
 python reset_db.py
+
+# 6. Create database tables
+python -c "from database import engine, Base; from models import *;
+Base.metadata.create_all(engine)"
 
 # 5. Start the Server
 python main.py

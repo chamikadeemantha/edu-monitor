@@ -1,11 +1,30 @@
 # Fix for ChromaDB requiring newer sqlite3
 import sys
 import os
+import platform
 import ctypes
 
 # Fix for Protobuf conflict (MediaPipe vs others)
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
+# Windows-only: load newer sqlite3.dll so ChromaDB works
+# Looks in the project's own venv/DLLs folder (cross-machine safe)
+if platform.system() == "Windows":
+    _base_dir = os.path.dirname(os.path.abspath(__file__))
+    _sqlite_candidates = [
+        os.path.join(_base_dir, "venv", "DLLs", "sqlite3.dll"),
+        os.path.join(_base_dir, "sqlite3.dll"),
+    ]
+    for _dll_path in _sqlite_candidates:
+        try:
+            ctypes.CDLL(_dll_path)
+            break
+        except Exception:
+            continue
+
+# On Mac/Linux: replace sqlite3 with pysqlite3-binary if available (for ChromaDB)
+# On Windows: pysqlite3-binary has no build, so we rely on the sqlite3.dll loaded above
+if platform.system() != "Windows":
 # Fix for tokenizers parallelism crash on Windows (WinError 6)
 # When YOLO/mediapipe inference threads are running, the tokenizers Rust
 # threads cause handle conflicts. Disabling parallelism avoids this.
@@ -20,24 +39,10 @@ try:
     ctypes.CDLL(r'c:\Users\chath\Desktop\Research\Code\venv\DLLs\sqlite3.dll')
 except Exception:
     try:
-        # Fallback to CWD
-        ctypes.CDLL(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sqlite3.dll'))
-    except Exception:
+        __import__('pysqlite3')
+        sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+    except ImportError:
         pass
-
-try:
-    __import__('pysqlite3')
-    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-except ImportError:
-    pass
-
-# Fix for ChromaDB requiring newer sqlite3
-try:
-    __import__('pysqlite3')
-    import sys
-    sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-except ImportError:
-    pass
 
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse, FileResponse
@@ -61,35 +66,41 @@ except Exception as e:
     logger.warning("   - Upload, Summary, and Q&A features will be disabled")
     performance_router = None
 
-# Teacher behavior API
+# Teacher behavior API - CHANGED FROM modules to models
 try:
-    from modules.teacher_behavior.api import router as teacher_behavior_router
+    from models.teacher_behavior.api import router as teacher_behavior_router
 except Exception:
     teacher_behavior_router = None
 # teacher_behavior_router = None
 
-from modules.engagement.run_inference import run_inference, LATEST_STATS, STATS_HISTORY, LATEST_GROUP_STATS, set_group_visualization
+# CHANGED FROM modules to models
+from models.engagement.run_inference import run_inference, LATEST_STATS, STATS_HISTORY, LATEST_GROUP_STATS, set_group_visualization
 
 
 # def set_visual_style(style: str): pass
 # def set_zone_boundaries(back_split: float, front_split: float): pass
 from pydantic import BaseModel
 
-# Attendance router
-# Attendance router
-from modules.attendance.routes import router as attendance_router
+# Attendance router - CHANGED FROM modules to models
+from models.attendance.routes import router as attendance_router
 
-# Auth router
-from modules.auth.routes import router as auth_router
+# Auth router - CHANGED FROM modules to models
+from models.auth.routes import router as auth_router
 from database import engine, Base, SessionLocal
-from modules.auth.seeder import seed_users
+from models.auth.seeder import seed_users
 
 # Create DB tables
 Base.metadata.create_all(bind=engine)
-
+from fastapi.middleware.cors import CORSMiddleware
 app = FastAPI(title="EduMonitor Backend", description="Classroom engagement and AI-powered lecture assistant")
 
-
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 # Startup event to check dependencies
 @app.on_event("startup")
 async def startup_event():
@@ -98,9 +109,9 @@ async def startup_event():
     logger.info("EduMonitor Backend Starting")
     logger.info("=" * 60)
     
-    # Check Ollama availability
+    # Check Ollama availability - CHANGED FROM modules to models
     try:
-        from modules.performance.llm_service import check_ollama_connection, get_available_models
+        from models.performance.llm_service import check_ollama_connection, get_available_models
         ollama_ok = check_ollama_connection()
         if ollama_ok:
             models = get_available_models()
@@ -152,11 +163,11 @@ def read_root():
 if teacher_behavior_router is not None:
     app.include_router(teacher_behavior_router, prefix="/teacher_behavior")
 
-# Server-side teacher behavior inference (stream + stats)
+# Server-side teacher behavior inference (stream + stats) - CHANGED FROM modules to models
 try:
-    from modules.teacher_behavior.inference import run_teacher_inference, get_latest_stats
+    from models.teacher_behavior.inference import run_teacher_inference, get_latest_stats
 except Exception as e:
-    print(f"CRITICAL: modules.teacher_behavior.inference failed to import: {e}")
+    print(f"CRITICAL: models.teacher_behavior.inference failed to import: {e}")
     run_teacher_inference = None
     def get_latest_stats():
         return {"behavior": "Unavailable", "mobility": 0.0, "orientation": 0.0, "hand_speed": 0.0}
@@ -180,7 +191,8 @@ def teacher_stats():
 
 @app.get('/api/teacher_stats/report')
 def teacher_report():
-    report_path = os.path.join(os.path.dirname(__file__), 'modules', 'teacher_behavior', 'reports', 'teacher_behavior_report.csv')
+    # CHANGED FROM modules to models
+    report_path = os.path.join(os.path.dirname(__file__), 'models', 'teacher_behavior', 'reports', 'teacher_behavior_report.csv')
     if os.path.exists(report_path):
         return FileResponse(report_path, media_type='text/csv', filename='teacher_behavior_report.csv')
     return JSONResponse(content={"error": "Report not found"}, status_code=404)
@@ -209,7 +221,8 @@ class VisualStyleRequest(BaseModel):
 
 @app.post("/settings/visual-style")
 def set_visual_style_endpoint(req: VisualStyleRequest):
-    from modules.engagement.run_inference import set_visual_style
+    # CHANGED FROM modules to models
+    from models.engagement.run_inference import set_visual_style
     set_visual_style(req.style)
     return {"status": "ok", "style": req.style}
 
@@ -219,7 +232,8 @@ class ZoneSettingsRequest(BaseModel):
 
 @app.post("/settings/zones")
 def set_zone_settings(req: ZoneSettingsRequest):
-    from modules.engagement.run_inference import set_zone_boundaries
+    # CHANGED FROM modules to models
+    from models.engagement.run_inference import set_zone_boundaries
     set_zone_boundaries(req.back_split, req.front_split)
     return {"status": "ok", "zones": {"back": req.back_split, "front": req.front_split}}
 
@@ -233,9 +247,18 @@ def video_feed():
         media_type="multipart/x-mixed-replace; boundary=frame"
     )
 
+# ML Insights router
+try:
+    from ml.routes import router as ml_router
+    ML_AVAILABLE = True
+except ImportError:
+    ML_AVAILABLE = False
+    print("⚠️ ML Insights module not available")
+
 app.include_router(attendance_router, prefix="/api")
 app.include_router(auth_router, prefix="/api/auth")
+if ML_AVAILABLE:
+    app.include_router(ml_router, prefix="/api")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
-
