@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { useLocalSTT } from './useLocalSTT';
 import {
     Upload,
     Mic,
@@ -54,12 +55,8 @@ export default function StudentPerformanceSection() {
     const [isDragging, setIsDragging] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // Transcription state
-    const [isRecording, setIsRecording] = useState(false);
-    const [transcript, setTranscript] = useState('');
-    const [interimTranscript, setInterimTranscript] = useState('');
+    // Transcription state (powered by Whisper)
     const [transcriptStatus, setTranscriptStatus] = useState<TranscriptStatus>({ status: 'idle', message: '' });
-    const recognitionRef = useRef<any>(null);
 
     // Auto-submit state
     const [autoSubmitEnabled, setAutoSubmitEnabled] = useState(true);
@@ -294,7 +291,7 @@ export default function StudentPerformanceSection() {
             const response = await fetch(`${API_BASE_URL}/api/performance/transcript`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ transcript: text, use_llm_filter: false }), // Use regex for speed
+                body: JSON.stringify({ transcript: text, use_llm_filter: false, skip_filter: true }),
             });
 
             const data = await response.json();
@@ -310,53 +307,26 @@ export default function StudentPerformanceSection() {
         }
     }, []);
 
-    // Initialize speech recognition
+    // Local Whisper STT hook 
+    const {
+        isRecording,
+        transcript,
+        displayedTranscript,
+        interimText: interimTranscript,
+        error: sttError,
+        isTranscribing,
+        start: startRecording,
+        stop: stopRecording,
+        clear: clearSTT,
+    } = useLocalSTT((finalText: string) => {
+        // Track auto-submit count when Whisper transcribes + stores a chunk
+        setAutoSubmitCount(prev => prev + 1);
+        setLastAutoSubmit(new Date());
+        fetchStats();
+    });
+
+    // Fetch stats on mount
     useEffect(() => {
-        if (typeof window !== 'undefined') {
-            const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-            if (SpeechRecognition) {
-                const recognition = new SpeechRecognition();
-                recognition.continuous = true;
-                recognition.interimResults = true;
-                recognition.lang = 'en-US';
-
-                recognition.onresult = (event: any) => {
-                    let interim = '';
-                    let final = '';
-                    for (let i = event.resultIndex; i < event.results.length; i++) {
-                        const result = event.results[i];
-                        if (result.isFinal) {
-                            final += result[0].transcript + ' ';
-                        } else {
-                            interim += result[0].transcript;
-                        }
-                    }
-                    if (final) {
-                        setTranscript(prev => prev + final);
-                        pendingTranscriptRef.current += final;
-                    }
-                    setInterimTranscript(interim);
-                };
-
-                recognition.onerror = (event: any) => {
-                    console.error('Speech recognition error:', event.error);
-                    setIsRecording(false);
-                };
-
-                recognition.onend = () => {
-                    // Only restart if still recording
-                    if (isRecording && recognitionRef.current) {
-                        try {
-                            recognitionRef.current.start();
-                        } catch (e) {
-                            console.error('Failed to restart recognition:', e);
-                        }
-                    }
-                };
-
-                recognitionRef.current = recognition;
-            }
-        }
         fetchStats();
     }, []);
 
@@ -452,15 +422,9 @@ export default function StudentPerformanceSection() {
     };
 
     // Transcription handlers
-    const toggleRecording = () => {
-        if (!recognitionRef.current) {
-            alert('Speech recognition is not supported in this browser. Please use Chrome or Edge.');
-            return;
-        }
-
+    const toggleRecording = async () => {
         if (isRecording) {
-            recognitionRef.current.stop();
-            setIsRecording(false);
+            stopRecording();
 
             // Submit any remaining pending transcript
             if (autoSubmitEnabled && pendingTranscriptRef.current.trim().length >= 20) {
@@ -468,18 +432,15 @@ export default function StudentPerformanceSection() {
                 pendingTranscriptRef.current = '';
             }
         } else {
-            setTranscript('');
-            setInterimTranscript('');
+            clearSTT();
             setAutoSubmitCount(0);
             pendingTranscriptRef.current = '';
-            recognitionRef.current.start();
-            setIsRecording(true);
+            await startRecording();
         }
     };
 
     const clearTranscript = () => {
-        setTranscript('');
-        setInterimTranscript('');
+        clearSTT();
         setTranscriptStatus({ status: 'idle', message: '' });
         setAutoSubmitCount(0);
         pendingTranscriptRef.current = '';
@@ -493,14 +454,14 @@ export default function StudentPerformanceSection() {
             const response = await fetch(`${API_BASE_URL}/api/performance/transcript`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ transcript: transcript, use_llm_filter: true }),
+                body: JSON.stringify({ transcript: transcript, use_llm_filter: false, skip_filter: true }),
             });
 
             const data = await response.json();
 
             if (response.ok && data.success) {
                 setTranscriptStatus({ status: 'success', message: `Stored ${data.data?.chunks_stored || 1} content chunks` });
-                setTranscript('');
+                clearSTT();
                 pendingTranscriptRef.current = '';
                 fetchStats();
             } else {
@@ -666,10 +627,11 @@ export default function StudentPerformanceSection() {
                                 </div>
 
                                 <div className="bg-gray-900 rounded-lg p-4 min-h-[120px] max-h-[160px] overflow-y-auto border border-gray-700">
-                                    {transcript || interimTranscript ? (
+                                    {displayedTranscript || interimTranscript ? (
                                         <p className="text-gray-200 leading-relaxed text-sm">
-                                            {transcript}
+                                            {displayedTranscript}
                                             <span className="text-blue-400 opacity-70">{interimTranscript}</span>
+                                            {isTranscribing && <span className="inline-block w-2 h-4 bg-blue-400 ml-1 animate-pulse" />}
                                         </p>
                                     ) : (
                                         <p className="text-gray-600 text-center text-sm">Transcript will appear here...</p>

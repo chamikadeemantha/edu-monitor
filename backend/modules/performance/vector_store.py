@@ -250,8 +250,8 @@ def search_similar(
 def get_all_content(
     collection_name: str = "lecture_content",
     limit: int = 100
-) -> List[str]:
-    """Get all documents from a collection."""
+) -> List[Dict]:
+    """Get all documents from a collection with metadata."""
     try:
         _ensure_collection(collection_name)
         client = get_qdrant_client()
@@ -262,7 +262,16 @@ def get_all_content(
             with_payload=True,
         )
         
-        return [point.payload.get("document", "") for point in results]
+        docs = []
+        for point in results:
+            payload = point.payload or {}
+            docs.append({
+                "id": str(point.id),
+                "text": payload.get("document", ""),
+                "source": payload.get("source", "unknown"),
+                "metadata": {k: v for k, v in payload.items() if k != "document"},
+            })
+        return docs
     
     except Exception as e:
         logger.error(f"Failed to get content: {e}")

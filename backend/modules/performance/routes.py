@@ -19,6 +19,7 @@ from .vector_store import (
     clear_collection
 )
 from .content_filter import filter_and_clean_transcript
+from .whisper_stt import transcribe_audio, is_whisper_available
 from .llm_service import (
     check_ollama_connection,
     is_ollama_available,
@@ -37,6 +38,7 @@ class TranscriptRequest(BaseModel):
     """Request body for transcript submission."""
     transcript: str
     use_llm_filter: bool = True
+    skip_filter: bool = False  # When True, store transcript as-is (no filtering)
 
 
 class QuestionRequest(BaseModel):
@@ -137,6 +139,28 @@ async def submit_transcript(request: TranscriptRequest):
         )
     
     try:
+        raw_text = request.transcript.strip()
+
+        # If skip_filter is True, store the transcript directly without filtering
+        if request.skip_filter:
+            num_stored = add_documents(
+                texts=[raw_text],
+                source="transcript",
+                metadata={"type": "live_speech", "llm_filtered": False, "raw": True}
+            )
+            logger.info(f"Stored raw transcript: {num_stored} chunks ({len(raw_text)} chars)")
+            return StatusResponse(
+                success=True,
+                message=f"Stored {num_stored} content chunks (unfiltered)",
+                data={
+                    "original_length": len(raw_text),
+                    "cleaned_length": len(raw_text),
+                    "chunks_stored": num_stored,
+                    "llm_filtered": False,
+                    "preview": raw_text[:200] + "..." if len(raw_text) > 200 else raw_text
+                }
+            )
+
         # Check if LLM is available for filtering
         llm_available = is_ollama_available()
         use_llm = request.use_llm_filter and llm_available
@@ -332,6 +356,26 @@ async def get_stats():
     }
 
 
+@router.get("/chunks")
+async def get_stored_chunks():
+    """Get all stored transcript/content chunks from the database."""
+    try:
+        chunks = get_all_content(limit=200)
+        return {
+            "success": True,
+            "count": len(chunks),
+            "chunks": chunks
+        }
+    except Exception as e:
+        logger.error(f"Error fetching chunks: {e}")
+        return {
+            "success": False,
+            "count": 0,
+            "chunks": [],
+            "error": str(e)
+        }
+
+
 @router.delete("/clear")
 async def clear_content():
     """Clear all stored lecture content."""
@@ -348,3 +392,53 @@ async def clear_content():
             success=False,
             message=f"Error clearing content: {str(e)}"
         )
+
+
+@router.post("/transcribe-audio")
+async def transcribe_audio_chunk(file: UploadFile = File(...)):
+    """
+    Transcribe an audio chunk using local Faster Whisper.
+    Accepts audio file (WAV, WebM, etc.), transcribes it, stores in vector DB,
+    and returns the transcript text.
+    """
+    try:
+        audio_bytes = await file.read()
+
+        if len(audio_bytes) < 100:
+            return StatusResponse(
+                success=False,
+                message="Audio chunk too small"
+            )
+
+        # Transcribe locally with Faster Whisper
+        transcript = transcribe_audio(audio_bytes, filename=file.filename or "audio.webm")
+
+        if not transcript:
+            return StatusResponse(
+                success=True,
+                message="No speech detected in audio chunk",
+                data={"transcript": "", "chunks_stored": 0}
+            )
+
+        # Store in vector database (raw, no filtering)
+        num_stored = add_documents(
+            texts=[transcript],
+            source="transcript",
+            metadata={"type": "live_speech", "method": "whisper_local", "raw": True}
+        )
+
+        logger.info(f"Transcribed and stored: {len(transcript)} chars, {num_stored} chunks")
+
+        return StatusResponse(
+            success=True,
+            message=f"Transcribed and stored {num_stored} chunks",
+            data={
+                "transcript": transcript,
+                "chunks_stored": num_stored,
+                "audio_size": len(audio_bytes),
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Audio transcription error: {e}")
+        raise HTTPException(status_code=500, detail=f"Transcription error: {str(e)}")
