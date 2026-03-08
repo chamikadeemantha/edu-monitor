@@ -15,6 +15,11 @@ from modules.teacher_behavior.osnet import osnet_x0_25
 # ── CONFIG ────────────────────────────────────────────────────────────────────
 
 BASE_DIR   = os.path.dirname(os.path.abspath(__file__))
+
+# For robustness when running from different CWDs
+def get_resource_path(relative_path, base_path=BASE_DIR):
+    return os.path.join(base_path, relative_path)
+
 MODEL_PATH = os.path.join(BASE_DIR, "models", "teacher_behavior_rf_model.pkl")
 
 # Camera sources
@@ -56,7 +61,15 @@ FEATURE_COLS = [
 
 # ── MODELS ────────────────────────────────────────────────────────────────────
 print("Loading YOLOv8-Pose model...")
-pose_model = YOLO("yolov8n-pose.pt")
+yolo_pt = "yolov8n-pose.pt"
+if not os.path.exists(yolo_pt):
+    # Try sibling directory or common location
+    yolo_pt = os.path.join(os.path.dirname(os.path.dirname(BASE_DIR)), "yolov8n-pose.pt")
+    if not os.path.exists(yolo_pt):
+        yolo_pt = os.path.join(os.path.dirname(BASE_DIR), "engagement", "yolov8n-pose.pt")
+    if not os.path.exists(yolo_pt):
+        yolo_pt = "yolov8n-pose.pt" # Fallback to default name for auto-download
+pose_model = YOLO(yolo_pt)
 
 print("Loading OSNet Re-ID model...")
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
