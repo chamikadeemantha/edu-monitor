@@ -22,6 +22,7 @@ os.environ["ONNXRUNTIME_QUIET"] = "1"
 from .document_processor import process_document
 from .vector_store import (
     add_documents,
+    add_points_with_embeddings,
     search_similar,
     get_all_content,
     get_collection_stats,
@@ -168,7 +169,24 @@ async def upload_lecture_slides(file: UploadFile = File(...)):
                 logger.error(f"Ingest failed: {error_msg}")
                 raise RuntimeError(error_msg)
                 
-            num_stored = output.get("chunks_stored", 0)
+            # Get data from worker
+            chunks = output.get("chunks", [])
+            embeddings = output.get("embeddings", [])
+            
+            if not chunks or not embeddings:
+                # Fallback for old worker or empty result
+                num_stored = output.get("chunks_stored", 0)
+                logger.warning(f"Worker returned no chunks/embeddings. Using chunks_stored={num_stored}")
+            else:
+                # STORE in the main process (which holds the lock)
+                logger.info(f"Storing {len(chunks)} chunks in vector DB from server process...")
+                num_stored = add_points_with_embeddings(
+                    texts=chunks,
+                    embeddings=embeddings,
+                    source="slides",
+                    metadata={"filename": file.filename}
+                )
+            
             sample_chunk = output.get("sample_chunk")
             
             logger.info(f"Uploaded and stored {num_stored} chunks from {file.filename}")
