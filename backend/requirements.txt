@@ -8,3 +8,9 @@ PyPDF2
 requests
 numpy
 faster-whisper
+sqlalchemy
+psycopg2
+python-jose[cryptography]
+pydantic[email]
+passlib
+bcrypt<4.0.0

@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 venv/
+.venv/
 *.pkl
 !backend/modules/engagement/models/engagement_model.pkl
 .pytest_cache/
