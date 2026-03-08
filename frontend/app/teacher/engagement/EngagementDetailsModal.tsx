@@ -59,7 +59,7 @@ export default function EngagementDetailsModal({ isOpen, onClose, dataKeys }: En
 
     const keyEngaged = dataKeys?.engaged || 'engaged';
     const keyTotal = dataKeys?.total || 'total';
-    const chartLabel = dataKeys?.label || 'Total Engagement';
+    const chartLabel = dataKeys?.label || 'Total Behavior';
 
     // Process data for graph
     const chartData = history.map(point => ({
@@ -77,7 +77,7 @@ export default function EngagementDetailsModal({ isOpen, onClose, dataKeys }: En
                     <div>
                         <h2 className="text-xl font-bold text-white flex items-center gap-2">
                             <Clock className="text-blue-400" />
-                            Engagement History
+                            Behavior History
                         </h2>
                         <p className="text-sm text-gray-400 mt-1">Real-time analysis of current session</p>
                     </div>
@@ -94,7 +94,7 @@ export default function EngagementDetailsModal({ isOpen, onClose, dataKeys }: En
                     {/* Stats Summary */}
                     <div className="grid grid-cols-3 gap-4">
                         <div className="bg-gray-700/30 p-4 rounded-xl border border-gray-600/50">
-                            <div className="text-gray-400 text-sm mb-1">Average Engagement</div>
+                            <div className="text-gray-400 text-sm mb-1">Average On-Task</div>
                             <div className="text-2xl font-bold text-white">
                                 {chartData.length > 0
                                     ? Math.round(chartData.reduce((acc, curr) => acc + curr.percentage, 0) / chartData.length)
@@ -102,7 +102,7 @@ export default function EngagementDetailsModal({ isOpen, onClose, dataKeys }: En
                             </div>
                         </div>
                         <div className="bg-gray-700/30 p-4 rounded-xl border border-gray-600/50">
-                            <div className="text-gray-400 text-sm mb-1">Peak Engagement</div>
+                            <div className="text-gray-400 text-sm mb-1">Peak On-Task</div>
                             <div className="text-2xl font-bold text-emerald-400">
                                 {chartData.length > 0
                                     ? Math.max(...chartData.map(d => d.percentage))
@@ -125,7 +125,7 @@ export default function EngagementDetailsModal({ isOpen, onClose, dataKeys }: En
                             <ResponsiveContainer width="100%" height="100%">
                                 <AreaChart data={chartData}>
                                     <defs>
-                                        <linearGradient id="colorEngagement" x1="0" y1="0" x2="0" y2="1">
+                                        <linearGradient id="colorBehavior" x1="0" y1="0" x2="0" y2="1">
                                             <stop offset="5%" stopColor="#3B82F6" stopOpacity={0.3} />
                                             <stop offset="95%" stopColor="#3B82F6" stopOpacity={0} />
                                         </linearGradient>
@@ -153,8 +153,8 @@ export default function EngagementDetailsModal({ isOpen, onClose, dataKeys }: En
                                         stroke="#3B82F6"
                                         strokeWidth={2}
                                         fillOpacity={1}
-                                        fill="url(#colorEngagement)"
-                                        name="Engagement %"
+                                        fill="url(#colorBehavior)"
+                                        name="On-Task %"
                                         isAnimationActive={false}
                                     />
                                 </AreaChart>

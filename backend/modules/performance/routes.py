@@ -14,6 +14,10 @@ import shutil
 import subprocess
 import sys
 
+# Silence ONNX Runtime diagnostics
+os.environ["ORT_LOGGING_LEVEL"] = "3"
+os.environ["ONNXRUNTIME_QUIET"] = "1"
+
 from .document_processor import process_document
 from .vector_store import (
     add_documents,
@@ -110,7 +114,17 @@ async def upload_lecture_slides(file: UploadFile = File(...)):
             
         # Parse result
         try:
-            output = json.loads(result.stdout)
+            # Extract JSON from stdout just in case C-level logs spilled in
+            stdout_text = result.stdout.strip()
+            # Find the last line that looks like a JSON dictionary, since the worker writes JSON last
+            json_text = stdout_text
+            for line in reversed(stdout_text.splitlines()):
+                if line.strip().startswith("{") and line.strip().endswith("}"):
+                    json_text = line.strip()
+                    break
+            
+            output = json.loads(json_text)
+
             if not output.get("success"):
                 error_msg = output.get("error", "Unknown ingestion error")
                 logger.error(f"Ingest failed: {error_msg}")

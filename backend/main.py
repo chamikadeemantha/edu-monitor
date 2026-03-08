@@ -25,24 +25,18 @@ if platform.system() == "Windows":
 # On Mac/Linux: replace sqlite3 with pysqlite3-binary if available (for ChromaDB)
 # On Windows: pysqlite3-binary has no build, so we rely on the sqlite3.dll loaded above
 if platform.system() != "Windows":
+    try:
+        __import__('pysqlite3')
+        sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+    except ImportError:
+        pass
+
 # Fix for tokenizers parallelism crash on Windows (WinError 6)
 # When YOLO/mediapipe inference threads are running, the tokenizers Rust
 # threads cause handle conflicts. Disabling parallelism avoids this.
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
-
-# Attempt to force-load the newer sqlite3.dll from specific paths
-# This trick helps when the OS loader insists on using the system python's sqlite3.dll
-try:
-    # Try the one we placed in venv/DLLs
-    ctypes.CDLL(r'c:\Users\chath\Desktop\Research\Code\venv\DLLs\sqlite3.dll')
-except Exception:
-    try:
-        __import__('pysqlite3')
-        sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-    except ImportError:
-        pass
 
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse, FileResponse
@@ -74,7 +68,7 @@ except Exception:
 # teacher_behavior_router = None
 
 # CHANGED FROM modules to models
-from models.engagement.run_inference import run_inference, LATEST_STATS, STATS_HISTORY, LATEST_GROUP_STATS, set_group_visualization
+from modules.engagement.run_inference import run_inference, LATEST_STATS, STATS_HISTORY, LATEST_GROUP_STATS, set_group_visualization
 
 
 # def set_visual_style(style: str): pass
@@ -222,7 +216,7 @@ class VisualStyleRequest(BaseModel):
 @app.post("/settings/visual-style")
 def set_visual_style_endpoint(req: VisualStyleRequest):
     # CHANGED FROM modules to models
-    from models.engagement.run_inference import set_visual_style
+    from modules.engagement.run_inference import set_visual_style
     set_visual_style(req.style)
     return {"status": "ok", "style": req.style}
 
@@ -233,7 +227,7 @@ class ZoneSettingsRequest(BaseModel):
 @app.post("/settings/zones")
 def set_zone_settings(req: ZoneSettingsRequest):
     # CHANGED FROM modules to models
-    from models.engagement.run_inference import set_zone_boundaries
+    from modules.engagement.run_inference import set_zone_boundaries
     set_zone_boundaries(req.back_split, req.front_split)
     return {"status": "ok", "zones": {"back": req.back_split, "front": req.front_split}}
 
