@@ -13,7 +13,7 @@ try:
     from .tracking_utils import non_max_suppression_fast
 except ImportError:
     from head_pose import estimate_pitch_bgr
-    from pose_utils import get_basic_pose_keypoints, draw_pose_keypoints
+    from pose_utils import get_basic_pose_keypoints, draw_pose_keypoints 
     from tracking_utils import non_max_suppression_fast
 
 # Constants

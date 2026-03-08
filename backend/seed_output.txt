@@ -1,0 +1,172 @@
+﻿2026-02-27 06:43:06,257 INFO sqlalchemy.engine.Engine select pg_catalog.version()
+2026-02-27 06:43:06,257 INFO sqlalchemy.engine.Engine [raw sql] {}
+2026-02-27 06:43:06,257 INFO sqlalchemy.engine.Engine select current_schema()
+2026-02-27 06:43:06,257 INFO sqlalchemy.engine.Engine [raw sql] {}
+2026-02-27 06:43:06,257 INFO sqlalchemy.engine.Engine show standard_conforming_strings
+2026-02-27 06:43:06,257 INFO sqlalchemy.engine.Engine [raw sql] {}
+2026-02-27 06:43:06,257 INFO sqlalchemy.engine.Engine BEGIN (implicit)
+2026-02-27 06:43:06,257 INFO sqlalchemy.engine.Engine SELECT id FROM users WHERE role = 'teacher' LIMIT 1
+2026-02-27 06:43:06,257 INFO sqlalchemy.engine.Engine [generated in 0.00008s] {}
+2026-02-27 06:43:06,262 INFO sqlalchemy.engine.Engine ROLLBACK
+.\venv\Scripts\python 
+: Traceback (most 
+recent call last):
+At line:1 char:32
++ ... DING='utf-8'; 
+.\venv\Scripts\python 
+-m ml.seed_demo_data 
+2>&1 | Out-F ...
++                   ~~~
+~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo     
+         : NotSpecifi  
+  ed: (Traceback (mo   
+ st recent call las    
+t)::String) [], Re    
+moteException
+    + FullyQualifiedEr 
+   rorId : NativeComm  
+  andError
+ 
+  File "F:\GitHub\edu-m
+onitor\backend\venv\lib
+\site-packages\sqlalche
+my\engine\base.py", 
+line 1967, in 
+_exec_single_context
+    self.dialect.do_exe
+cute(
+  File "F:\GitHub\edu-m
+onitor\backend\venv\lib
+\site-packages\sqlalche
+my\engine\default.py", 
+line 952, in do_execute
+    cursor.execute(stat
+ement, parameters)
+psycopg2.errors.Invalid
+TextRepresentation: 
+invalid input value 
+for enum userrole: 
+"teacher"
+LINE 1: SELECT id FROM 
+users WHERE role = 
+'teacher' LIMIT 1
+                       
+                   ^
+
+
+The above exception 
+was the direct cause 
+of the following 
+exception:
+
+Traceback (most recent 
+call last):
+  File "F:\GitHub\edu-m
+onitor\backend\ml\seed_
+demo_data.py", line 
+98, in seed_data
+    teacher_row = 
+db.execute(
+  File "F:\GitHub\edu-m
+onitor\backend\venv\lib
+\site-packages\sqlalche
+my\orm\session.py", 
+line 2351, in execute
+    return 
+self._execute_internal(
+  File "F:\GitHub\edu-m
+onitor\backend\venv\lib
+\site-packages\sqlalche
+my\orm\session.py", 
+line 2258, in 
+_execute_internal
+    result = 
+conn.execute(
+  File "F:\GitHub\edu-m
+onitor\backend\venv\lib
+\site-packages\sqlalche
+my\engine\base.py", 
+line 1419, in execute
+    return meth(
+  File "F:\GitHub\edu-m
+onitor\backend\venv\lib
+\site-packages\sqlalche
+my\sql\elements.py", 
+line 527, in 
+_execute_on_connection
+    return connection._
+execute_clauseelement(
+  File "F:\GitHub\edu-m
+onitor\backend\venv\lib
+\site-packages\sqlalche
+my\engine\base.py", 
+line 1641, in 
+_execute_clauseelement
+    ret = 
+self._execute_context(
+  File "F:\GitHub\edu-m
+onitor\backend\venv\lib
+\site-packages\sqlalche
+my\engine\base.py", 
+line 1846, in 
+_execute_context
+    return self._exec_s
+ingle_context(
+  File "F:\GitHub\edu-m
+onitor\backend\venv\lib
+\site-packages\sqlalche
+my\engine\base.py", 
+line 1986, in 
+_exec_single_context
+    self._handle_dbapi_
+exception(
+  File "F:\GitHub\edu-m
+onitor\backend\venv\lib
+\site-packages\sqlalche
+my\engine\base.py", 
+line 2363, in 
+_handle_dbapi_exception
+    raise sqlalchemy_ex
+ception.with_traceback(
+exc_info[2]) from e
+  File "F:\GitHub\edu-m
+onitor\backend\venv\lib
+\site-packages\sqlalche
+my\engine\base.py", 
+line 1967, in 
+_exec_single_context
+    self.dialect.do_exe
+cute(
+  File "F:\GitHub\edu-m
+onitor\backend\venv\lib
+\site-packages\sqlalche
+my\engine\default.py", 
+line 952, in do_execute
+    cursor.execute(stat
+ement, parameters)
+sqlalchemy.exc.DataErro
+r: (psycopg2.errors.Inv
+alidTextRepresentation)
+ invalid input value 
+for enum userrole: 
+"teacher"
+LINE 1: SELECT id FROM 
+users WHERE role = 
+'teacher' LIMIT 1
+                       
+                   ^
+
+[SQL: SELECT id FROM 
+users WHERE role = 
+'teacher' LIMIT 1]
+(Background on this 
+error at: https://sqlal
+che.me/e/20/9h9h)
+[ERROR] (psycopg2.errors.InvalidTextRepresentation) invalid input value for enum userrole: "teacher"
+LINE 1: SELECT id FROM users WHERE role = 'teacher' LIMIT 1
+                                          ^
+
+[SQL: SELECT id FROM users WHERE role = 'teacher' LIMIT 1]
+(Background on this error at: https://sqlalche.me/e/20/9h9h)

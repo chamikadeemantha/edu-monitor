@@ -1,7 +1,8 @@
 """
 Vector Store Service using Qdrant (local persistent mode)
 Handles embedding storage and similarity search for RAG.
-Includes graceful error handling for missing dependencies.
+Uses ChromaDB's built-in ONNX embedding (avoids PyTorch/sentence-transformers
+thread conflicts with YOLO inference on Windows).
 """
 import logging
 from typing import List, Dict, Optional, Tuple
@@ -98,13 +99,6 @@ def _ensure_collection(collection_name: str = "lecture_content"):
     return collection_name
 
 
-def generate_embeddings(texts: List[str]) -> List[List[float]]:
-    """Generate embeddings for a list of texts."""
-    model = get_embedding_model()
-    embeddings = model.encode(texts, convert_to_numpy=True)
-    return embeddings.tolist()
-
-
 def generate_doc_id(text: str, source: str) -> str:
     """Generate a unique document ID based on content hash."""
     content = f"{source}:{text[:100]}"
@@ -124,6 +118,9 @@ def add_documents(
 ) -> int:
     """
     Add documents to the vector store.
+    
+    ChromaDB will automatically generate embeddings using its built-in
+    ONNX embedding function (no PyTorch/sentence-transformers needed).
     
     Args:
         texts: List of text chunks to store
@@ -188,6 +185,7 @@ def search_similar(
 ) -> List[Tuple[str, float, Dict]]:
     """
     Search for similar documents.
+    Uses ChromaDB's built-in embedding for the query as well.
     
     Args:
         query: Search query

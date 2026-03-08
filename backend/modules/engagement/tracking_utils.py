@@ -70,4 +70,5 @@ def non_max_suppression_fast(boxes, ids, overlapThresh=0.3):
         idxs = np.delete(idxs, np.concatenate(([last],
             np.where(overlap > overlapThresh)[0])))
 
-    return boxes[pick].astype("int"), ids[pick]
+    return boxes[pick].astype("int"), ids[pick], pick
+

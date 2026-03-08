@@ -10,7 +10,7 @@ import {
 
 import EngagementDetailsModal from './EngagementDetailsModal';
 
-export default function StudentEngagementPage() {
+export default function StudentBehaviorPage() {
   // Removed activeTab and manual router logic
 
   const [stats, setStats] = useState({ total: 0, engaged: 0, active: 0 });
@@ -94,9 +94,9 @@ export default function StudentEngagementPage() {
 
   // Helper to get keys for zone
   const getZoneKeys = (zoneName: string) => {
-    if (zoneName === "Front Row") return { engaged: "front_engaged", total: "front_total", label: "Front Row Engagement" };
-    if (zoneName === "Middle Row") return { engaged: "mid_engaged", total: "mid_total", label: "Middle Row Engagement" };
-    if (zoneName === "Back Row") return { engaged: "back_engaged", total: "back_total", label: "Back Row Engagement" };
+    if (zoneName === "Front Row") return { engaged: "front_engaged", total: "front_total", label: "Front Row Behavior" };
+    if (zoneName === "Middle Row") return { engaged: "mid_engaged", total: "mid_total", label: "Middle Row Behavior" };
+    if (zoneName === "Back Row") return { engaged: "back_engaged", total: "back_total", label: "Back Row Behavior" };
     return undefined;
   };
 
@@ -110,7 +110,7 @@ export default function StudentEngagementPage() {
 
       <header className="h-16 bg-gray-800/50 backdrop-blur border-b border-gray-700 flex items-center justify-between px-8 sticky top-0 z-10 shrink-0">
         <h2 className="text-lg font-semibold text-gray-200">
-          Student Engagement
+          Student Behavior
         </h2>
         <div className="flex items-center gap-4">
           <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -131,12 +131,12 @@ export default function StudentEngagementPage() {
               className="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow-lg cursor-pointer hover:border-blue-500 transition-colors"
               onClick={() => handleCardClick(undefined)}
             >
-              <h3 className="text-gray-400 text-sm font-medium mb-2">Class Engagement</h3>
+              <h3 className="text-gray-400 text-sm font-medium mb-2">Class Behavior</h3>
               <div className="text-2xl font-bold text-white">
                 {stats.total > 0 ? Math.round((stats.engaged / stats.total) * 100) : 0}%
               </div>
               <div className="text-emerald-400 text-sm mt-1">
-                {stats.engaged} / {stats.total} Students Engaged
+                {stats.engaged} / {stats.total} Students On-Task
               </div>
             </div>
             <div className="bg-gray-800 p-6 rounded-xl border border-gray-700 shadow-lg">
@@ -164,7 +164,7 @@ export default function StudentEngagementPage() {
                       {zoneData.total > 0 ? Math.round((zoneData.engaged / zoneData.total) * 100) : 0}%
                     </div>
                     <div className="text-xs text-gray-500">
-                      {zoneData.engaged}/{zoneData.total} Engaged
+                      {zoneData.engaged}/{zoneData.total} On-Task
                     </div>
                   </div>
                   {/* Simple bar visual */}

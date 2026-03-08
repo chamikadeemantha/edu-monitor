@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useRef, useEffect } from 'react';
+import { useAuth, UserRole } from "@/context/AuthContext";
 import Link from 'next/link';
 import {
   BookOpen,
