@@ -1,12 +1,13 @@
 """
 Performance Module API Routes
-Handles lecture content upload, transcript processing, and AI-powered summarization/Q&A.
+Handles lecture content upload, transcript processing, AI-powered summarization/Q&A,
+learning outcomes management, and AI quiz generation.
 Gracefully handles cases when Ollama LLM is not available.
 """
 from fastapi import APIRouter, UploadFile, File, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 import json
 import logging
 import os
@@ -27,12 +28,29 @@ from .vector_store import (
     clear_collection
 )
 from .content_filter import filter_and_clean_transcript
+from .whisper_stt import transcribe_audio, is_whisper_available
 from .llm_service import (
     check_ollama_connection,
     is_ollama_available,
     generate_summary,
     answer_question,
     get_available_models
+)
+from .learning_outcomes import (
+    upload_learning_outcomes,
+    get_learning_outcomes,
+    delete_learning_outcome,
+    clear_all_outcomes,
+)
+from .quiz_service import (
+    generate_quiz,
+    get_all_quizzes,
+    get_quiz,
+    release_quiz,
+    delete_quiz,
+    get_released_quizzes,
+    submit_quiz_response,
+    get_quiz_responses,
 )
 
 logger = logging.getLogger(__name__)
@@ -44,6 +62,7 @@ class TranscriptRequest(BaseModel):
     """Request body for transcript submission."""
     transcript: str
     use_llm_filter: bool = True
+    skip_filter: bool = False  # When True, store transcript as-is (no filtering)
 
 
 class QuestionRequest(BaseModel):
@@ -56,6 +75,25 @@ class StatusResponse(BaseModel):
     success: bool
     message: str
     data: Optional[dict] = None
+
+
+class QuizGenerateRequest(BaseModel):
+    """Request body for quiz generation."""
+    num_questions: int = 5
+    difficulty: str = "Intermediate"
+
+
+class QuizAnswerItem(BaseModel):
+    """Single answer in a quiz submission."""
+    questionId: int
+    selectedAnswer: int
+
+
+class QuizSubmitRequest(BaseModel):
+    """Request body for submitting quiz answers."""
+    student_id: str = "anonymous"
+    student_name: str = "Anonymous Student"
+    answers: List[QuizAnswerItem]
 
 
 @router.get("/health")
@@ -168,6 +206,28 @@ async def submit_transcript(request: TranscriptRequest):
         )
     
     try:
+        raw_text = request.transcript.strip()
+
+        # If skip_filter is True, store the transcript directly without filtering
+        if request.skip_filter:
+            num_stored = add_documents(
+                texts=[raw_text],
+                source="transcript",
+                metadata={"type": "live_speech", "llm_filtered": False, "raw": True}
+            )
+            logger.info(f"Stored raw transcript: {num_stored} chunks ({len(raw_text)} chars)")
+            return StatusResponse(
+                success=True,
+                message=f"Stored {num_stored} content chunks (unfiltered)",
+                data={
+                    "original_length": len(raw_text),
+                    "cleaned_length": len(raw_text),
+                    "chunks_stored": num_stored,
+                    "llm_filtered": False,
+                    "preview": raw_text[:200] + "..." if len(raw_text) > 200 else raw_text
+                }
+            )
+
         # Check if LLM is available for filtering
         llm_available = is_ollama_available()
         use_llm = request.use_llm_filter and llm_available
@@ -254,9 +314,10 @@ async def get_summary():
             media_type="text/event-stream"
         )
     
-    # Combine content for context
-    context = "\n\n---\n\n".join(all_content[:20])  # Limit context size
-    
+    # Combine content for context (extracting the 'text' field from each dict)
+    context_chunks = [item.get("text", "") if isinstance(item, dict) else str(item) for item in all_content[:20]]
+    context = "\n\n---\n\n".join(context_chunks)  # Limit context size
+
     logger.info(f"Generating summary for {len(all_content)} content chunks")
     
     # Stream the summary
@@ -363,6 +424,26 @@ async def get_stats():
     }
 
 
+@router.get("/chunks")
+async def get_stored_chunks():
+    """Get all stored transcript/content chunks from the database."""
+    try:
+        chunks = get_all_content(limit=200)
+        return {
+            "success": True,
+            "count": len(chunks),
+            "chunks": chunks
+        }
+    except Exception as e:
+        logger.error(f"Error fetching chunks: {e}")
+        return {
+            "success": False,
+            "count": 0,
+            "chunks": [],
+            "error": str(e)
+        }
+
+
 @router.delete("/clear")
 async def clear_content():
     """Clear all stored lecture content."""
@@ -379,3 +460,188 @@ async def clear_content():
             success=False,
             message=f"Error clearing content: {str(e)}"
         )
+
+
+@router.post("/transcribe-audio")
+async def transcribe_audio_chunk(file: UploadFile = File(...)):
+    """
+    Transcribe an audio chunk using local Faster Whisper.
+    Accepts audio file (WAV, WebM, etc.), transcribes it, stores in vector DB,
+    and returns the transcript text.
+    """
+    try:
+        audio_bytes = await file.read()
+
+        if len(audio_bytes) < 100:
+            return StatusResponse(
+                success=False,
+                message="Audio chunk too small"
+            )
+
+        # Transcribe locally with Faster Whisper
+        transcript = transcribe_audio(audio_bytes, filename=file.filename or "audio.webm")
+
+        if not transcript:
+            return StatusResponse(
+                success=True,
+                message="No speech detected in audio chunk",
+                data={"transcript": "", "chunks_stored": 0}
+            )
+
+        # Store in vector database (raw, no filtering)
+        num_stored = add_documents(
+            texts=[transcript],
+            source="transcript",
+            metadata={"type": "live_speech", "method": "whisper_local", "raw": True}
+        )
+
+        logger.info(f"Transcribed and stored: {len(transcript)} chars, {num_stored} chunks")
+
+        return StatusResponse(
+            success=True,
+            message=f"Transcribed and stored {num_stored} chunks",
+            data={
+                "transcript": transcript,
+                "chunks_stored": num_stored,
+                "audio_size": len(audio_bytes),
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Audio transcription error: {e}")
+        raise HTTPException(status_code=500, detail=f"Transcription error: {str(e)}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# LEARNING OUTCOMES ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+@router.post("/learning-outcomes/upload", response_model=StatusResponse)
+async def upload_outcomes(file: UploadFile = File(...)):
+    """Upload a learning outcomes PDF/TXT and parse individual outcomes."""
+    if not file.filename.lower().endswith(('.pdf', '.txt')):
+        raise HTTPException(status_code=400, detail="Only PDF and TXT files are supported")
+    try:
+        content = await file.read()
+        result = upload_learning_outcomes(content, file.filename)
+        return StatusResponse(
+            success=True,
+            message=f"Successfully parsed {result['outcomes_added']} learning outcomes",
+            data=result,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Learning outcomes upload error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/learning-outcomes")
+async def list_outcomes():
+    """Get all stored learning outcomes."""
+    outcomes = get_learning_outcomes()
+    return {"success": True, "count": len(outcomes), "outcomes": outcomes}
+
+
+@router.delete("/learning-outcomes/{outcome_id}")
+async def remove_outcome(outcome_id: str):
+    """Delete a specific learning outcome."""
+    deleted = delete_learning_outcome(outcome_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Learning outcome not found")
+    return StatusResponse(success=True, message="Learning outcome deleted")
+
+
+@router.delete("/learning-outcomes")
+async def clear_outcomes():
+    """Clear all learning outcomes."""
+    count = clear_all_outcomes()
+    return StatusResponse(success=True, message=f"Cleared {count} learning outcomes")
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# QUIZ ENDPOINTS
+# ═══════════════════════════════════════════════════════════════════════════
+
+@router.post("/quiz/generate")
+async def generate_quiz_endpoint(request: QuizGenerateRequest):
+    """Generate a quiz from lecture content aligned with learning outcomes."""
+    try:
+        quiz = generate_quiz(
+            num_questions=request.num_questions,
+            difficulty=request.difficulty,
+        )
+        return {"success": True, "quiz": quiz}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"Quiz generation error: {e}")
+        raise HTTPException(status_code=500, detail=f"Quiz generation failed: {str(e)}")
+
+
+@router.get("/quizzes")
+async def list_quizzes():
+    """Get all generated quizzes (teacher view)."""
+    quizzes = get_all_quizzes()
+    return {"success": True, "count": len(quizzes), "quizzes": quizzes}
+
+
+@router.get("/quiz/released")
+async def list_released_quizzes():
+    """Get released quizzes (student view)."""
+    quizzes = get_released_quizzes()
+    return {"success": True, "count": len(quizzes), "quizzes": quizzes}
+
+
+@router.get("/quiz/{quiz_id}")
+async def get_quiz_endpoint(quiz_id: str):
+    """Get a specific quiz."""
+    quiz = get_quiz(quiz_id)
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    return {"success": True, "quiz": quiz}
+
+
+@router.put("/quiz/{quiz_id}/release")
+async def release_quiz_endpoint(quiz_id: str):
+    """Release a quiz to students."""
+    quiz = release_quiz(quiz_id)
+    if not quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    return StatusResponse(success=True, message="Quiz released to students", data={"quiz_id": quiz_id})
+
+
+@router.delete("/quiz/{quiz_id}")
+async def delete_quiz_endpoint(quiz_id: str):
+    """Delete a quiz."""
+    deleted = delete_quiz(quiz_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+    return StatusResponse(success=True, message="Quiz deleted")
+
+
+@router.post("/quiz/{quiz_id}/submit")
+async def submit_quiz(quiz_id: str, request: QuizSubmitRequest):
+    """Submit student answers for a quiz."""
+    try:
+        result = submit_quiz_response(
+            quiz_id=quiz_id,
+            student_id=request.student_id,
+            student_name=request.student_name,
+            answers=[a.dict() for a in request.answers],
+        )
+        return {"success": True, "result": result}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Quiz submission error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/quiz/{quiz_id}/responses")
+async def get_responses(quiz_id: str):
+    """Get all student responses for a quiz."""
+    responses = get_quiz_responses(quiz_id)
+    return {"success": True, "count": len(responses), "responses": responses}

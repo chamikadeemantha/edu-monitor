@@ -14,35 +14,21 @@ logger = logging.getLogger(__name__)
 OLLAMA_BASE_URL = "http://localhost:11434"
 DEFAULT_MODEL = "llama3-it"
 
-# Global flag to track Ollama availability (reduces repeated connection attempts)
-_ollama_available = None
-
+# Remove global flag that permanently disabled Ollama
+# _ollama_available = None
 
 def check_ollama_connection() -> bool:
     """Check if Ollama is running and accessible."""
-    global _ollama_available
     try:
-        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=3)
-        _ollama_available = response.status_code == 200
-        if _ollama_available:
-            logger.info("✅ Ollama LLM is connected and available")
-        return _ollama_available
-    except requests.exceptions.ConnectionError:
-        _ollama_available = False
-        logger.warning("⚠️ Ollama is not running. LLM features will be disabled. To enable, install Ollama from https://ollama.com and run: ollama run llama3-it")
+        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=1)
+        return response.status_code == 200
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.RequestException):
+        logger.warning("⚠️ Cannot connect to Ollama. Ensure it is running (ollama serve).")
         return False
-    except requests.exceptions.RequestException as e:
-        _ollama_available = False
-        logger.warning(f"⚠️ Cannot connect to Ollama: {e}. LLM features disabled.")
-        return False
-
 
 def is_ollama_available() -> bool:
-    """Quick check if Ollama was previously found to be available."""
-    global _ollama_available
-    if _ollama_available is None:
-        return check_ollama_connection()
-    return _ollama_available
+    """Check if Ollama is available."""
+    return check_ollama_connection()
 
 
 def get_available_models() -> List[str]:
@@ -93,7 +79,7 @@ def generate_streaming(
         payload["system"] = system_prompt
     
     try:
-        with requests.post(url, json=payload, stream=True, timeout=120) as response:
+        with requests.post(url, json=payload, stream=True, timeout=300) as response:
             response.raise_for_status()
             for line in response.iter_lines():
                 if line:

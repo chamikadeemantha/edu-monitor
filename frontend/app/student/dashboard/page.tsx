@@ -54,100 +54,87 @@ export default function StudentDashboard() {
   // ===== QUIZ STATE =====
   interface QuizQuestion {
     id: number;
-    topic: string;
     question: string;
     options: string[];
     correctAnswer: number;
+    learningOutcome: string;
+    difficulty: string;
+  }
+  interface Quiz {
+    id: string;
+    questions: QuizQuestion[];
+    difficulty: string;
+    num_questions: number;
+    status: string;
+    created_at: string;
   }
 
-  // Hardcoded quiz questions (same as teacher side)
-  const quizQuestions: QuizQuestion[] = [
-    {
-      id: 1,
-      topic: "Machine Learning",
-      question: "What is supervised learning?",
-      options: [
-        "Learning without any data",
-        "Learning from labeled training data",
-        "Learning from unlabeled data only",
-        "Learning without a computer"
-      ],
-      correctAnswer: 1
-    },
-    {
-      id: 2,
-      topic: "Data Structures",
-      question: "What is the time complexity of binary search?",
-      options: ["O(n)", "O(n²)", "O(log n)", "O(1)"],
-      correctAnswer: 2
-    },
-    {
-      id: 3,
-      topic: "Neural Networks",
-      question: "What is an activation function?",
-      options: [
-        "A function that turns off the network",
-        "A function that introduces non-linearity",
-        "A function that only works on images",
-        "A function that reduces learning rate"
-      ],
-      correctAnswer: 1
-    },
-    {
-      id: 4,
-      topic: "Algorithms",
-      question: "What does Big O notation measure?",
-      options: [
-        "The exact runtime in seconds",
-        "Memory usage only",
-        "Algorithm efficiency as input grows",
-        "Code readability"
-      ],
-      correctAnswer: 2
-    },
-    {
-      id: 5,
-      topic: "Databases",
-      question: "What is database normalization?",
-      options: [
-        "Making database faster",
-        "Organizing data to reduce redundancy",
-        "Encrypting all data",
-        "Backing up the database"
-      ],
-      correctAnswer: 1
-    }
-  ];
+  const [releasedQuizzes, setReleasedQuizzes] = useState<Quiz[]>([]);
+  const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null);
 
   // Quiz popup state
   const [showQuizPopup, setShowQuizPopup] = useState(false);
   const [currentQuizIndex, setCurrentQuizIndex] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
   const [hasSubmitted, setHasSubmitted] = useState(false);
-  const [quizNotification, setQuizNotification] = useState(true); // Show notification by default for demo
+  const [quizNotification, setQuizNotification] = useState(false);
+  const [quizResult, setQuizResult] = useState<{ score: number; total: number } | null>(null);
+  const [quizAnswers, setQuizAnswers] = useState<{ questionId: number; selectedAnswer: number }[]>([]);
 
-  const currentQuestion = quizQuestions[currentQuizIndex];
+  const currentQuestion = activeQuiz ? activeQuiz.questions[currentQuizIndex] : null;
 
-  const triggerQuiz = () => {
+  const fetchReleasedQuizzes = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/performance/quiz/released`);
+      if (res.ok) {
+        const data = await res.json();
+        const quizzes: Quiz[] = data.quizzes || [];
+        setReleasedQuizzes(quizzes);
+        if (quizzes.length > 0) setQuizNotification(true);
+      }
+    } catch (e) { console.error('Failed to fetch quizzes:', e); }
+  };
+
+  const triggerQuiz = (quiz?: Quiz) => {
+    const target = quiz || releasedQuizzes[0];
+    if (!target) return;
+    setActiveQuiz(target);
+    setCurrentQuizIndex(0);
     setShowQuizPopup(true);
     setSelectedAnswer(null);
     setHasSubmitted(false);
     setQuizNotification(false);
+    setQuizResult(null);
+    setQuizAnswers([]);
   };
 
   const submitQuizAnswer = () => {
-    if (selectedAnswer !== null) {
+    if (selectedAnswer !== null && currentQuestion) {
       setHasSubmitted(true);
+      setQuizAnswers(prev => [...prev, { questionId: currentQuestion.id, selectedAnswer }]);
     }
   };
 
-  const nextQuestion = () => {
-    if (currentQuizIndex < quizQuestions.length - 1) {
+  const nextQuestion = async () => {
+    if (!activeQuiz) return;
+    if (currentQuizIndex < activeQuiz.questions.length - 1) {
       setCurrentQuizIndex(currentQuizIndex + 1);
       setSelectedAnswer(null);
       setHasSubmitted(false);
     } else {
-      // All questions done
+      // All questions done — submit to backend
+      const allAnswers = [...quizAnswers];
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/performance/quiz/${activeQuiz.id}/submit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ student_id: 'anonymous', student_name: 'Student', answers: allAnswers }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setQuizResult({ score: data.result.score, total: data.result.total });
+        }
+      } catch (e) { console.error('Failed to submit quiz:', e); }
       setShowQuizPopup(false);
       setCurrentQuizIndex(0);
       setSelectedAnswer(null);
@@ -159,10 +146,12 @@ export default function StudentDashboard() {
     setShowQuizPopup(false);
     setSelectedAnswer(null);
     setHasSubmitted(false);
+    setActiveQuiz(null);
   };
 
   useEffect(() => {
     fetchStats();
+    fetchReleasedQuizzes();
   }, []);
 
   useEffect(() => {
@@ -320,6 +309,49 @@ export default function StudentDashboard() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-white">
+      {/* Header */}
+      <nav className="bg-gray-800 border-b border-gray-700 px-8 py-4 flex justify-between items-center">
+        <div className="flex items-center gap-3">
+          <div className="bg-gradient-to-r from-emerald-500 to-teal-500 p-2.5 rounded-xl">
+            <GraduationCap size={22} className="text-white" />
+          </div>
+          <div>
+            <h1 className="font-bold text-lg">Student Portal</h1>
+            <p className="text-xs text-gray-400">AI-Powered Learning</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-4">
+          <Link
+            href="/student/dashboard/attendance"
+            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium"
+          >
+            <UserCheck size={16} />
+            Attendance
+          </Link>
+          {/* Demo Quiz Button */}
+          <button
+            onClick={() => triggerQuiz()}
+            className="relative flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors text-sm font-medium"
+          >
+            <Brain size={16} />
+            Demo Quiz
+            {quizNotification && (
+              <span className="absolute -top-1 -right-1 flex h-4 w-4">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-4 w-4 bg-red-500 text-[10px] items-center justify-center">!</span>
+              </span>
+            )}
+          </button>
+          <div className="flex items-center gap-2 bg-gray-700/50 px-3 py-1.5 rounded-lg">
+            <FileText size={14} className="text-emerald-400" />
+            <span className="text-sm">{contentCount ?? 0} content chunks</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-sm text-gray-400">Welcome, <strong className="text-white">Alex</strong></span>
+            <div className="w-9 h-9 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 flex items-center justify-center font-bold">A</div>
+          </div>
+        </div>
+      </nav>
 
       <main className="max-w-7xl mx-auto p-8">
         {/* AI Learning Assistant - PRIORITY SECTION */}
@@ -469,7 +501,7 @@ export default function StudentDashboard() {
       </main>
 
       {/* Quiz Popup Modal */}
-      {showQuizPopup && (
+      {showQuizPopup && activeQuiz && currentQuestion && !quizResult && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
           <div className="bg-gray-900 rounded-2xl border border-indigo-500/50 shadow-2xl shadow-indigo-500/20 w-full max-w-2xl mx-4 overflow-hidden animate-in zoom-in-95 duration-300">
             {/* Header */}
@@ -485,12 +517,13 @@ export default function StudentDashboard() {
                       AI Generated
                     </span>
                   </h3>
-                  <p className="text-sm text-gray-400">Question {currentQuizIndex + 1} of {quizQuestions.length}</p>
+                  <p className="text-sm text-gray-400">Question {currentQuizIndex + 1} of {activeQuiz.questions.length}</p>
                 </div>
               </div>
               <button
                 onClick={closeQuiz}
                 className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+                title="Close quiz"
               >
                 <X size={20} className="text-gray-400" />
               </button>
@@ -500,22 +533,25 @@ export default function StudentDashboard() {
             <div className="w-full bg-gray-800 h-1">
               <div
                 className="bg-gradient-to-r from-indigo-500 to-purple-500 h-full transition-all duration-500"
-                style={{ width: `${((currentQuizIndex + 1) / quizQuestions.length) * 100}%` }}
+                style={{ width: `${((currentQuizIndex + 1) / activeQuiz.questions.length) * 100}%` }}
               />
             </div>
 
             {/* Question Content */}
             <div className="p-6">
-              {/* Topic Badge */}
-              <div className="mb-4">
-                <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${currentQuestion.topic === 'Machine Learning' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
-                  currentQuestion.topic === 'Data Structures' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
-                    currentQuestion.topic === 'Neural Networks' ? 'bg-purple-500/20 text-purple-400 border border-purple-500/30' :
-                      currentQuestion.topic === 'Algorithms' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' :
-                        'bg-pink-500/20 text-pink-400 border border-pink-500/30'
+              {/* Topic/Outcome Badge */}
+              <div className="mb-4 flex items-center gap-2 flex-wrap">
+                <span className={`inline-block px-3 py-1 rounded-full text-xs font-medium ${activeQuiz.difficulty === 'Beginner' ? 'bg-green-500/20 text-green-400 border border-green-500/30' :
+                  activeQuiz.difficulty === 'Intermediate' ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30' :
+                    'bg-red-500/20 text-red-400 border border-red-500/30'
                   }`}>
-                  {currentQuestion.topic}
+                  {activeQuiz.difficulty}
                 </span>
+                {currentQuestion.learningOutcome && (
+                  <span className="inline-block px-3 py-1 rounded-full text-[10px] font-medium bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 max-w-[300px] truncate" title={currentQuestion.learningOutcome}>
+                    LO: {currentQuestion.learningOutcome}
+                  </span>
+                )}
               </div>
 
               {/* Question */}
@@ -609,10 +645,46 @@ export default function StudentDashboard() {
                   onClick={nextQuestion}
                   className="px-6 py-2.5 bg-emerald-600 text-white rounded-lg font-medium hover:bg-emerald-700 transition-all flex items-center gap-2"
                 >
-                  {currentQuizIndex < quizQuestions.length - 1 ? 'Next Question' : 'Finish Quiz'}
+                  {currentQuizIndex < activeQuiz.questions.length - 1 ? 'Next Question' : 'Finish Quiz'}
                 </button>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Quiz Result Modal */}
+      {showQuizPopup && quizResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-gray-900 rounded-2xl border border-indigo-500/50 shadow-2xl shadow-indigo-500/20 w-full max-w-md mx-4 overflow-hidden text-center p-8 animate-in zoom-in-95 duration-300">
+            <div className="w-20 h-20 mx-auto bg-gradient-to-br from-emerald-400 to-teal-500 rounded-full flex items-center justify-center mb-6 shadow-lg shadow-emerald-500/20">
+              <GraduationCap size={40} className="text-white" />
+            </div>
+            <h2 className="text-2xl font-bold text-white mb-2">Quiz Completed!</h2>
+            <p className="text-gray-400 mb-8">You have successfully finished the knowledge check.</p>
+
+            <div className="bg-gray-800/80 rounded-xl p-6 mb-8 border border-gray-700">
+              <p className="text-sm text-gray-400 mb-1">Your Score</p>
+              <div className="flex items-baseline justify-center gap-1">
+                <span className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-teal-400">
+                  {quizResult.score}
+                </span>
+                <span className="text-xl text-gray-500">/ {quizResult.total}</span>
+              </div>
+              <div className="mt-4 pt-4 border-t border-gray-700 flex justify-around">
+                <div>
+                  <p className="text-xs text-gray-500">Accuracy</p>
+                  <p className="font-bold text-white">{Math.round((quizResult.score / quizResult.total) * 100)}%</p>
+                </div>
+              </div>
+            </div>
+
+            <button
+              onClick={closeQuiz}
+              className="w-full py-3 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-all flex items-center justify-center gap-2"
+            >
+              Back to Dashboard
+            </button>
           </div>
         </div>
       )}

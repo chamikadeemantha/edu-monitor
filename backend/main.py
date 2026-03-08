@@ -1,42 +1,8 @@
-# Fix for ChromaDB requiring newer sqlite3
 import sys
 import os
-import platform
-import ctypes
 
 # Fix for Protobuf conflict (MediaPipe vs others)
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
-
-# Windows-only: load newer sqlite3.dll so ChromaDB works
-# Looks in the project's own venv/DLLs folder (cross-machine safe)
-if platform.system() == "Windows":
-    _base_dir = os.path.dirname(os.path.abspath(__file__))
-    _sqlite_candidates = [
-        os.path.join(_base_dir, "venv", "DLLs", "sqlite3.dll"),
-        os.path.join(_base_dir, "sqlite3.dll"),
-    ]
-    for _dll_path in _sqlite_candidates:
-        try:
-            ctypes.CDLL(_dll_path)
-            break
-        except Exception:
-            continue
-
-# On Mac/Linux: replace sqlite3 with pysqlite3-binary if available (for ChromaDB)
-# On Windows: pysqlite3-binary has no build, so we rely on the sqlite3.dll loaded above
-if platform.system() != "Windows":
-    try:
-        __import__('pysqlite3')
-        sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-    except ImportError:
-        pass
-
-# Fix for tokenizers parallelism crash on Windows (WinError 6)
-# When YOLO/mediapipe inference threads are running, the tokenizers Rust
-# threads cause handle conflicts. Disabling parallelism avoids this.
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
 
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse, FileResponse
