@@ -29,6 +29,7 @@ STATS_HISTORY = []
 VISUALIZE_GROUPS = False
 VISUAL_STYLE = "dots"  # Options: "dots", "boxes", "detailed"
 ZONE_SPLITS = {"back": 0.33, "front": 0.66}
+CLASS_ROI = {"x1": 0.0, "y1": 0.0, "x2": 1.0, "y2": 1.0} # Relative to the 50% crop
 
 def set_group_visualization(enabled: bool):
     global VISUALIZE_GROUPS
@@ -45,6 +46,15 @@ def set_zone_boundaries(back_split: float, front_split: float):
     ZONE_SPLITS["back"] = back_split
     ZONE_SPLITS["front"] = front_split
     print(f"Zone boundaries updated: {ZONE_SPLITS}")
+
+def set_class_boundary(x1: float, y1: float, x2: float, y2: float):
+    global CLASS_ROI
+    CLASS_ROI["x1"] = min(x1, x2)
+    CLASS_ROI["y1"] = min(y1, y2)
+    CLASS_ROI["x2"] = max(x1, x2)
+    CLASS_ROI["y2"] = max(y1, y2)
+    print(f"Class boundary ROI updated: {CLASS_ROI}")
+
 
 
 import math
@@ -216,7 +226,17 @@ def run_inference(video_path=None, show_video=False):
                 batch_boxes = []
 
                 for i, (x1, y1, x2, y2) in enumerate(boxes):
+                    # ROI Filtering: Only process detections within the defined class boundary
+                    # Coordinates are relative to the 50% crop
+                    cx = (x1 + x2) / 2.0 / w
+                    cy = (y1 + y2) / 2.0 / h
+                    
+                    if not (CLASS_ROI["x1"] <= cx <= CLASS_ROI["x2"] and 
+                            CLASS_ROI["y1"] <= cy <= CLASS_ROI["y2"]):
+                        continue
+
                     tid = ids[i]
+
                     x1, y1, x2, y2 = map(int, [x1, y1, x2, y2])
                     
                     bbox_width = x2 - x1
@@ -363,12 +383,10 @@ def run_inference(video_path=None, show_video=False):
                         else:
                             color = (0, 0, 255)
                             text = f"Off-Task ({score:.2f})"
-                    else:
-                        color = (0, 255, 255)
-                        text = "Analyzing..."
                     if len(prediction_history[tid]) < 2:
-                        text = "Analyzing..."
+                        text = ""
                         color = (0, 255, 255)
+
                     new_detections.append({
                         "x1": x1, "y1": y1, "x2": x2, "y2": y2,
                         "color": color, "text": text
@@ -388,6 +406,13 @@ def run_inference(video_path=None, show_video=False):
             # Update global stats
             on_task_count = sum(1 for d in new_detections if d["color"] == (0, 255, 0))
             total_active = len(new_detections)
+            
+            # Behavior specific counts for historical tracking
+            behavior_counts = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
+            for tid, (label, score) in engagement_state.items():
+                if label in behavior_counts:
+                    behavior_counts[label] += 1
+
             group_counts = {
                 "Front Row": {"engaged": 0, "total": 0},
                 "Middle Row": {"engaged": 0, "total": 0},
@@ -414,6 +439,11 @@ def run_inference(video_path=None, show_video=False):
                 STATS_HISTORY.append({
                     "timestamp": time.time(),
                     "engaged": on_task_count, "total": total_active,
+                    "listening": behavior_counts[0],
+                    "working": behavior_counts[1],
+                    "hand_raised": behavior_counts[2],
+                    "sleeping": behavior_counts[3],
+                    "away": behavior_counts[4],
                     "front_engaged": group_counts["Front Row"]["engaged"],
                     "front_total": group_counts["Front Row"]["total"],
                     "mid_engaged": group_counts["Middle Row"]["engaged"],
@@ -421,6 +451,7 @@ def run_inference(video_path=None, show_video=False):
                     "back_engaged": group_counts["Back Row"]["engaged"],
                     "back_total": group_counts["Back Row"]["total"]
                 })
+
 
     # Start background inference thread
     infer_thread = threading.Thread(target=inference_worker, daemon=True)
@@ -507,18 +538,35 @@ def run_inference(video_path=None, show_video=False):
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
             cv2.putText(frame, "FRONT ROW", (10, h - 20),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+            
+            # ROI boundary visualization
+            rx1, ry1 = int(CLASS_ROI["x1"] * w), int(CLASS_ROI["y1"] * h)
+            rx2, ry2 = int(CLASS_ROI["x2"] * w), int(CLASS_ROI["y2"] * h)
+            cv2.rectangle(frame, (rx1, ry1), (rx2, ry2), (0, 255, 255), 1, cv2.LINE_AA)
+            cv2.putText(frame, "CLASS ROI", (rx1 + 5, ry1 + 20), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 255), 1)
 
-        # Legend
+        # Legend (Top Bar)
         overlay = frame.copy()
-        cv2.rectangle(overlay, (w - 260, 5), (w - 10, 50), (0, 0, 0), -1)
-        frame = cv2.addWeighted(overlay, 0.6, frame, 0.4, 0)
-        cv2.putText(frame, "Status: ", (w - 250, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
-        cv2.circle(frame, (w - 160, 25), 6, (0, 255, 0), -1)
-        cv2.putText(frame, "On-Task", (w - 145, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
-        cv2.circle(frame, (w - 50, 25), 6, (0, 0, 255), -1)
-        cv2.putText(frame, "Off-Task", (w - 35, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1)
+        # Combined Legend (Compact)
+        cv2.rectangle(overlay, (0, 0), (w, 32), (20, 20, 20), -1) 
+        frame = cv2.addWeighted(overlay, 0.7, frame, 0.3, 0)
+        
+        # On-Task Indicator
+        cv2.circle(frame, (20, 16), 5, (0, 255, 0), -1)
+        cv2.putText(frame, "On-Task", (35, 21), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+        
+        # Off-Task Indicator
+        cv2.circle(frame, (120, 16), 5, (0, 0, 255), -1)
+        cv2.putText(frame, "Off-Task", (135, 21), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+
+        
+
 
         for det in last_detections:
+
             x1 = det["x1"]; y1 = det["y1"]
             x2 = det["x2"]; y2 = det["y2"]
             color = det["color"]
