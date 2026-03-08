@@ -28,3 +28,6 @@ training_output.txt
 *.log
 
 backend/modules/performance/vector_db
+
+# Deep Re-ID cloned library (not project source code)
+backend/deep-person-reid/
