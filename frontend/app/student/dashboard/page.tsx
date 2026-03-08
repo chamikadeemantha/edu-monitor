@@ -57,122 +57,23 @@ export default function StudentDashboard() {
   const chatContainerRef = useRef<HTMLDivElement>(null);
 
   // ===== QUIZ STATE =====
-  interface QuizQuestion {
-    id: number;
-    question: string;
-    options: string[];
-    correctAnswer: number;
-    learningOutcome: string;
-    difficulty: string;
-  }
-  interface Quiz {
-    id: string;
-    questions: QuizQuestion[];
-    difficulty: string;
-    num_questions: number;
-    status: string;
-    created_at: string;
-  }
-
-  const [releasedQuizzes, setReleasedQuizzes] = useState<Quiz[]>([]);
-  const [completedQuizzes, setCompletedQuizzes] = useState<Set<string>>(new Set());
-  const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null);
-
-  // Quiz popup state
-  const [showQuizPopup, setShowQuizPopup] = useState(false);
-  const [currentQuizIndex, setCurrentQuizIndex] = useState(0);
-  const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
-  const [hasSubmitted, setHasSubmitted] = useState(false);
-  const [quizNotification, setQuizNotification] = useState(false);
-  const [quizResult, setQuizResult] = useState<{ score: number; total: number } | null>(null);
-  const [quizAnswers, setQuizAnswers] = useState<{ questionId: number; selectedAnswer: number }[]>([]);
+  const {
+    releasedQuizzes,
+    completedQuizzes,
+    activeQuiz,
+    showQuizPopup,
+    quizResult,
+    currentQuizIndex,
+    selectedAnswer,
+    hasSubmitted,
+    triggerQuiz,
+    closeQuiz,
+    submitQuizAnswer,
+    nextQuestion,
+    setSelectedAnswer
+  } = useQuiz();
 
   const currentQuestion = activeQuiz ? activeQuiz.questions[currentQuizIndex] : null;
-
-  const fetchReleasedQuizzes = async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/performance/quiz/released`);
-      if (res.ok) {
-        const data = await res.json();
-        const quizzes: Quiz[] = data.quizzes || [];
-        setReleasedQuizzes(quizzes);
-
-        // Also fetch all responses to see which ones this student has done
-        const rRes = await fetch(`${API_BASE_URL}/api/performance/quiz/responses/all`);
-        if (rRes.ok) {
-          const rData = await rRes.json();
-          const studentResponses = (rData.responses || []).filter(
-            (r: any) => r.student_id === studentId
-          );
-          const completedSet = new Set<string>();
-          studentResponses.forEach((r: any) => completedSet.add(r.quiz_id));
-          setCompletedQuizzes(completedSet);
-
-          // Show notification if there are uncompleted quizzes
-          const uncompleted = quizzes.filter(q => !completedSet.has(q.id));
-          if (uncompleted.length > 0) setQuizNotification(true);
-        }
-      }
-    } catch (e) { console.error('Failed to fetch quizzes:', e); }
-  };
-
-  const triggerQuiz = (quiz: Quiz) => {
-    if (!quiz || completedQuizzes.has(quiz.id)) return;
-    setActiveQuiz(quiz);
-    setCurrentQuizIndex(0);
-    setShowQuizPopup(true);
-    setSelectedAnswer(null);
-    setHasSubmitted(false);
-    setQuizNotification(false);
-    setQuizResult(null);
-    setQuizAnswers([]);
-  };
-
-  const submitQuizAnswer = () => {
-    if (selectedAnswer !== null && currentQuestion) {
-      setHasSubmitted(true);
-      setQuizAnswers(prev => [...prev, { questionId: currentQuestion.id, selectedAnswer }]);
-    }
-  };
-
-  const nextQuestion = async () => {
-    if (!activeQuiz) return;
-    if (currentQuizIndex < activeQuiz.questions.length - 1) {
-      setCurrentQuizIndex(currentQuizIndex + 1);
-      setSelectedAnswer(null);
-      setHasSubmitted(false);
-    } else {
-      // All questions done — submit to backend
-      const allAnswers = [...quizAnswers];
-      try {
-        const res = await fetch(`${API_BASE_URL}/api/performance/quiz/${activeQuiz.id}/submit`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ student_id: studentId, student_name: studentName, answers: allAnswers }),
-        });
-        const data = await res.json();
-        if (res.ok && data.success) {
-          setQuizResult({ score: data.result.score, total: data.result.total });
-          setCompletedQuizzes(prev => {
-            const newSet = new Set(prev);
-            newSet.add(activeQuiz.id);
-            return newSet;
-          });
-        }
-      } catch (e) { console.error('Failed to submit quiz:', e); }
-      setShowQuizPopup(false);
-      setCurrentQuizIndex(0);
-      setSelectedAnswer(null);
-      setHasSubmitted(false);
-    }
-  };
-
-  const closeQuiz = () => {
-    setShowQuizPopup(false);
-    setSelectedAnswer(null);
-    setHasSubmitted(false);
-    setActiveQuiz(null);
-  };
 
   useEffect(() => {
     fetchStats();
