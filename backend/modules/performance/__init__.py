@@ -23,6 +23,22 @@ from .content_filter import (
     filter_and_clean_transcript,
     batch_filter_transcripts
 )
+from .learning_outcomes import (
+    upload_learning_outcomes,
+    get_learning_outcomes,
+    delete_learning_outcome,
+    clear_all_outcomes,
+)
+from .quiz_service import (
+    generate_quiz,
+    get_all_quizzes,
+    get_quiz,
+    release_quiz,
+    delete_quiz,
+    get_released_quizzes,
+    submit_quiz_response,
+    get_quiz_responses,
+)
 
 __all__ = [
     'router',
@@ -38,5 +54,17 @@ __all__ = [
     'chunk_text',
     'process_document',
     'filter_and_clean_transcript',
-    'batch_filter_transcripts'
+    'batch_filter_transcripts',
+    'upload_learning_outcomes',
+    'get_learning_outcomes',
+    'delete_learning_outcome',
+    'clear_all_outcomes',
+    'generate_quiz',
+    'get_all_quizzes',
+    'get_quiz',
+    'release_quiz',
+    'delete_quiz',
+    'get_released_quizzes',
+    'submit_quiz_response',
+    'get_quiz_responses',
 ]
