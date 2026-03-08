@@ -43,6 +43,10 @@ interface Message {
 }
 
 export default function StudentDashboard() {
+  const { user } = useAuth();
+  const studentId = user?.student_profile?.student_id || "anonymous";
+  const studentName = user?.student_profile?.full_name || user?.username || "Student";
+
   // AI Assistant State
   const [summary, setSummary] = useState('');
   const [isSummaryLoading, setIsSummaryLoading] = useState(false);
@@ -51,6 +55,124 @@ export default function StudentDashboard() {
   const [isAskLoading, setIsAskLoading] = useState(false);
   const [contentCount, setContentCount] = useState<number | null>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
+
+  // ===== QUIZ STATE =====
+  interface QuizQuestion {
+    id: number;
+    question: string;
+    options: string[];
+    correctAnswer: number;
+    learningOutcome: string;
+    difficulty: string;
+  }
+  interface Quiz {
+    id: string;
+    questions: QuizQuestion[];
+    difficulty: string;
+    num_questions: number;
+    status: string;
+    created_at: string;
+  }
+
+  const [releasedQuizzes, setReleasedQuizzes] = useState<Quiz[]>([]);
+  const [completedQuizzes, setCompletedQuizzes] = useState<Set<string>>(new Set());
+  const [activeQuiz, setActiveQuiz] = useState<Quiz | null>(null);
+
+  // Quiz popup state
+  const [showQuizPopup, setShowQuizPopup] = useState(false);
+  const [currentQuizIndex, setCurrentQuizIndex] = useState(0);
+  const [selectedAnswer, setSelectedAnswer] = useState<number | null>(null);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
+  const [quizNotification, setQuizNotification] = useState(false);
+  const [quizResult, setQuizResult] = useState<{ score: number; total: number } | null>(null);
+  const [quizAnswers, setQuizAnswers] = useState<{ questionId: number; selectedAnswer: number }[]>([]);
+
+  const currentQuestion = activeQuiz ? activeQuiz.questions[currentQuizIndex] : null;
+
+  const fetchReleasedQuizzes = async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/performance/quiz/released`);
+      if (res.ok) {
+        const data = await res.json();
+        const quizzes: Quiz[] = data.quizzes || [];
+        setReleasedQuizzes(quizzes);
+
+        // Also fetch all responses to see which ones this student has done
+        const rRes = await fetch(`${API_BASE_URL}/api/performance/quiz/responses/all`);
+        if (rRes.ok) {
+          const rData = await rRes.json();
+          const studentResponses = (rData.responses || []).filter(
+            (r: any) => r.student_id === studentId
+          );
+          const completedSet = new Set<string>();
+          studentResponses.forEach((r: any) => completedSet.add(r.quiz_id));
+          setCompletedQuizzes(completedSet);
+
+          // Show notification if there are uncompleted quizzes
+          const uncompleted = quizzes.filter(q => !completedSet.has(q.id));
+          if (uncompleted.length > 0) setQuizNotification(true);
+        }
+      }
+    } catch (e) { console.error('Failed to fetch quizzes:', e); }
+  };
+
+  const triggerQuiz = (quiz: Quiz) => {
+    if (!quiz || completedQuizzes.has(quiz.id)) return;
+    setActiveQuiz(quiz);
+    setCurrentQuizIndex(0);
+    setShowQuizPopup(true);
+    setSelectedAnswer(null);
+    setHasSubmitted(false);
+    setQuizNotification(false);
+    setQuizResult(null);
+    setQuizAnswers([]);
+  };
+
+  const submitQuizAnswer = () => {
+    if (selectedAnswer !== null && currentQuestion) {
+      setHasSubmitted(true);
+      setQuizAnswers(prev => [...prev, { questionId: currentQuestion.id, selectedAnswer }]);
+    }
+  };
+
+  const nextQuestion = async () => {
+    if (!activeQuiz) return;
+    if (currentQuizIndex < activeQuiz.questions.length - 1) {
+      setCurrentQuizIndex(currentQuizIndex + 1);
+      setSelectedAnswer(null);
+      setHasSubmitted(false);
+    } else {
+      // All questions done — submit to backend
+      const allAnswers = [...quizAnswers];
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/performance/quiz/${activeQuiz.id}/submit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ student_id: studentId, student_name: studentName, answers: allAnswers }),
+        });
+        const data = await res.json();
+        if (res.ok && data.success) {
+          setQuizResult({ score: data.result.score, total: data.result.total });
+          setCompletedQuizzes(prev => {
+            const newSet = new Set(prev);
+            newSet.add(activeQuiz.id);
+            return newSet;
+          });
+        }
+      } catch (e) { console.error('Failed to submit quiz:', e); }
+      setShowQuizPopup(false);
+      setCurrentQuizIndex(0);
+      setSelectedAnswer(null);
+      setHasSubmitted(false);
+    }
+  };
+
+  const closeQuiz = () => {
+    setShowQuizPopup(false);
+    setSelectedAnswer(null);
+    setHasSubmitted(false);
+    setActiveQuiz(null);
+  };
 
   useEffect(() => {
     fetchStats();
@@ -334,6 +456,67 @@ export default function StudentDashboard() {
               </div>
             </div>
           </div>
+        </section>
+
+        {/* Released Quizzes Section */}
+        <section className="mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl font-bold flex items-center gap-2">
+              <Brain size={24} className="text-indigo-400" />
+              Released Quizzes
+              {releasedQuizzes.filter(q => !completedQuizzes.has(q.id)).length > 0 && (
+                <span className="bg-indigo-500/20 text-indigo-400 text-xs px-2.5 py-0.5 rounded-full font-medium border border-indigo-500/30">
+                  {releasedQuizzes.filter(q => !completedQuizzes.has(q.id)).length} New
+                </span>
+              )}
+            </h2>
+          </div>
+
+          {releasedQuizzes.length === 0 ? (
+            <div className="bg-gray-800 rounded-xl border border-gray-700 p-8 text-center text-gray-500">
+              <Brain size={40} className="mx-auto mb-3 opacity-30" />
+              <p>No quizzes available right now. Check back later!</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {releasedQuizzes.map((quiz) => {
+                const isCompleted = completedQuizzes.has(quiz.id);
+                return (
+                  <div key={quiz.id} className={`bg-gray-800 rounded-xl border p-5 transition-all ${isCompleted ? 'border-emerald-500/30 opacity-80' : 'border-gray-700 hover:border-indigo-500/50 hover:-translate-y-1'}`}>
+                    <div className="flex items-center justify-between mb-3">
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${quiz.difficulty === 'Beginner' ? 'bg-green-500/20 text-green-400' : quiz.difficulty === 'Intermediate' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'}`}>
+                        {quiz.difficulty}
+                      </span>
+                      {isCompleted ? (
+                        <span className="flex items-center gap-1 text-xs text-emerald-400 font-medium bg-emerald-500/10 px-2 py-1 rounded-md">
+                          <CheckCircle2 size={14} /> Completed
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-500">{new Date(quiz.created_at).toLocaleDateString()}</span>
+                      )}
+                    </div>
+
+                    <h3 className="font-semibold text-lg mb-2 text-white">Knowledge Check</h3>
+                    <p className="text-sm text-gray-400 mb-5 flex items-center gap-2">
+                      <HelpCircle size={14} />
+                      {quiz.num_questions} Questions
+                    </p>
+
+                    <button
+                      onClick={() => triggerQuiz(quiz)}
+                      disabled={isCompleted}
+                      className={`w-full py-2.5 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${isCompleted
+                        ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                        : 'bg-indigo-600 text-white hover:bg-indigo-700'
+                        }`}
+                    >
+                      {isCompleted ? 'Already Submitted' : 'Start Quiz'}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         {/* How to Use AI Assistant */}

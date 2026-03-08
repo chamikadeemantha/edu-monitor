@@ -47,6 +47,14 @@ def get_embedding_model():
     return _embedding_model
 
 
+def generate_embeddings(texts: List[str]) -> List[List[float]]:
+    """Generate embeddings for a list of texts."""
+    model = get_embedding_model()
+    # SentenceTransformer encode returns a numpy array, convert it to list of floats for Qdrant
+    embeddings = model.encode(texts)
+    return embeddings.tolist()
+
+
 # Qdrant client (persistent storage)
 _qdrant_client = None
 _qdrant_error = None
@@ -76,6 +84,19 @@ def get_qdrant_client():
             raise
     
     return _qdrant_client
+
+
+def close_qdrant_client():
+    """Close the Qdrant client to release file locks."""
+    global _qdrant_client
+    if _qdrant_client is not None:
+        try:
+            _qdrant_client.close()
+            logger.info("✅ Qdrant client closed")
+        except Exception as e:
+            logger.error(f"Failed to close Qdrant client: {e}")
+        finally:
+            _qdrant_client = None
 
 
 def _ensure_collection(collection_name: str = "lecture_content"):

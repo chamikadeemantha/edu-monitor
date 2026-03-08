@@ -28,8 +28,13 @@ import {
     Plus,
     X,
     Settings,
-    Wand2
+    Wand2,
+    BarChart
 } from 'lucide-react';
+import {
+    BarChart as RechartsBarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+    PieChart, Pie, Cell, Legend
+} from 'recharts';
 
 // API Configuration
 const API_BASE_URL = "http://localhost:8000";
@@ -84,6 +89,13 @@ export default function StudentPerformanceSection() {
     const [outcomeUploadStatus, setOutcomeUploadStatus] = useState<UploadStatus>({ status: 'idle', message: '' });
     const outcomeFileRef = useRef<HTMLInputElement>(null);
 
+    // Pending outcomes state (for interactive selection)
+    const [pendingOutcomes, setPendingOutcomes] = useState<string[]>([]);
+    const [pendingOutcomeFileName, setPendingOutcomeFileName] = useState<string>('');
+    const [showPendingModal, setShowPendingModal] = useState(false);
+    const [newOutcomeText, setNewOutcomeText] = useState('');
+    const [isSavingOutcomes, setIsSavingOutcomes] = useState(false);
+
     // ===== QUIZ FEATURE STATE =====
     interface QuizQuestion {
         id: number;
@@ -113,6 +125,10 @@ export default function StudentPerformanceSection() {
     const [isGenerating, setIsGenerating] = useState(false);
     const [generateError, setGenerateError] = useState('');
 
+    // Analytics modal state
+    const [analyticsData, setAnalyticsData] = useState<any>(null);
+    const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(false);
+
     // Tab state
     const [activeTab, setActiveTab] = useState<'content' | 'quiz'>('content');
 
@@ -137,12 +153,60 @@ export default function StudentPerformanceSection() {
             const data = await res.json();
             if (res.ok && data.success) {
                 setOutcomeUploadStatus({ status: 'success', message: data.message });
+                setPendingOutcomes(data.data.extracted_outcomes);
+                setPendingOutcomeFileName(data.data.source_filename);
+                setShowPendingModal(true);
                 setOutcomeFile(null);
-                fetchOutcomes();
             } else {
                 setOutcomeUploadStatus({ status: 'error', message: data.detail || data.message || 'Upload failed' });
             }
         } catch { setOutcomeUploadStatus({ status: 'error', message: 'Failed to connect to server' }); }
+    };
+
+    const saveApprovedOutcomes = async () => {
+        if (pendingOutcomes.length === 0) {
+            setOutcomeUploadStatus({ status: 'error', message: 'No outcomes to save.' });
+            return;
+        }
+        setIsSavingOutcomes(true);
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/performance/learning-outcomes/save`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ outcomes: pendingOutcomes, source_filename: pendingOutcomeFileName })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setShowPendingModal(false);
+                setPendingOutcomes([]);
+                setPendingOutcomeFileName('');
+                fetchOutcomes();
+            } else {
+                setOutcomeUploadStatus({ status: 'error', message: data.detail || 'Failed to save outcomes' });
+            }
+        } catch {
+            setOutcomeUploadStatus({ status: 'error', message: 'Failed to connect to server' });
+        } finally {
+            setIsSavingOutcomes(false);
+        }
+    };
+
+    const addPendingOutcome = () => {
+        if (newOutcomeText.trim()) {
+            setPendingOutcomes([...pendingOutcomes, newOutcomeText.trim()]);
+            setNewOutcomeText('');
+        }
+    };
+
+    const updatePendingOutcome = (index: number, val: string) => {
+        const updated = [...pendingOutcomes];
+        updated[index] = val;
+        setPendingOutcomes(updated);
+    };
+
+    const removePendingOutcome = (index: number) => {
+        const updated = pendingOutcomes.filter((_, i) => i !== index);
+        setPendingOutcomes(updated);
     };
 
     const deleteOutcome = async (id: string) => {
@@ -196,6 +260,25 @@ export default function StudentPerformanceSection() {
             await fetch(`${API_BASE_URL}/api/performance/quiz/${quizId}/release`, { method: 'PUT' });
             fetchQuizzes();
         } catch (e) { console.error('Failed to release quiz:', e); }
+    };
+
+    const fetchAnalytics = async (quizId: string) => {
+        setIsAnalyticsLoading(true);
+        setShowAnalytics(true);
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/performance/quiz/${quizId}/analytics`);
+            if (res.ok) {
+                const data = await res.json();
+                setAnalyticsData(data.analytics);
+            } else {
+                setAnalyticsData(null);
+            }
+        } catch (e) {
+            console.error('Failed to fetch analytics:', e);
+            setAnalyticsData(null);
+        } finally {
+            setIsAnalyticsLoading(false);
+        }
     };
 
     // Auto-submit function
@@ -872,13 +955,29 @@ export default function StudentPerformanceSection() {
                                                             )}
                                                         </div>
 
-                                                        <button
-                                                            onClick={() => releaseQuiz(quiz.id)}
-                                                            disabled={quiz.status === 'released'}
-                                                            className={`w-full py-2 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${quiz.status === 'released' ? 'bg-gray-700 text-gray-500 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-700'}`}
-                                                        >
-                                                            {quiz.status === 'released' ? (<><CheckCircle2 size={16} />Released to Class</>) : (<><PlayCircle size={16} />Release to Class</>)}
-                                                        </button>
+                                                        {quiz.status === 'released' ? (
+                                                            <div className="flex gap-2">
+                                                                <button
+                                                                    disabled
+                                                                    className="w-1/3 py-2 px-4 rounded-lg font-medium bg-gray-700 text-gray-500 cursor-not-allowed flex items-center justify-center gap-2"
+                                                                >
+                                                                    <CheckCircle2 size={16} />Released
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => fetchAnalytics(quiz.id)}
+                                                                    className="w-2/3 py-2 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 bg-purple-600 text-white hover:bg-purple-700"
+                                                                >
+                                                                    <BarChart size={16} />View Analytics
+                                                                </button>
+                                                            </div>
+                                                        ) : (
+                                                            <button
+                                                                onClick={() => releaseQuiz(quiz.id)}
+                                                                className="w-full py-2 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 bg-indigo-600 text-white hover:bg-indigo-700"
+                                                            >
+                                                                <PlayCircle size={16} />Release to Class
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </div>
                                             ))}
@@ -1005,8 +1104,313 @@ export default function StudentPerformanceSection() {
                         </div>
                     </div>
                 </div>
-            )
-            }
-        </div >
+            )}
+
+            {/* ===== PENDING OUTCOMES MODAL ===== */}
+            {showPendingModal && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm">
+                    <div className="bg-gray-900 rounded-2xl border border-blue-500/50 shadow-2xl shadow-blue-500/20 w-full max-w-4xl max-h-[90vh] mx-4 flex flex-col">
+                        <div className="bg-gradient-to-r from-blue-600/30 to-indigo-600/30 px-6 py-4 border-b border-gray-700 flex items-center justify-between shrink-0">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-blue-500/20 rounded-lg">
+                                    <Target size={22} className="text-blue-400" />
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-white text-lg">Review Extracted Outcomes</h3>
+                                    <p className="text-sm text-gray-400">Edit, remove or add outcomes before saving.</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setShowPendingModal(false)}
+                                className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+                            >
+                                <X size={20} className="text-gray-400" />
+                            </button>
+                        </div>
+                        <div className="p-6 overflow-y-auto flex-1 space-y-4">
+                            {pendingOutcomes.map((outcome, idx) => (
+                                <div key={idx} className="flex items-start gap-3 bg-gray-800/50 p-3 rounded-lg border border-gray-700 group">
+                                    <div className="mt-2 text-gray-500 font-medium text-sm w-6 shrink-0">{idx + 1}.</div>
+                                    <textarea
+                                        value={outcome}
+                                        onChange={(e) => updatePendingOutcome(idx, e.target.value)}
+                                        className="flex-1 bg-gray-900/50 border border-gray-700 rounded-lg p-2 text-sm text-gray-300 min-h-[60px] focus:outline-none focus:border-blue-500/50"
+                                    />
+                                    <button
+                                        onClick={() => removePendingOutcome(idx)}
+                                        className="mt-2 p-1.5 hover:bg-red-500/20 rounded text-gray-500 hover:text-red-400 transition-colors"
+                                        title="Remove outcome"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
+                            ))}
+                            {pendingOutcomes.length === 0 && (
+                                <div className="text-center py-6 text-gray-400">
+                                    No outcomes extracted. You can add them manually below.
+                                </div>
+                            )}
+
+                            {/* Add manual outcome */}
+                            <div className="flex gap-2 pt-4 border-t border-gray-800">
+                                <input
+                                    type="text"
+                                    value={newOutcomeText}
+                                    onChange={(e) => setNewOutcomeText(e.target.value)}
+                                    placeholder="Add a missing outcome..."
+                                    className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50"
+                                    onKeyDown={(e) => e.key === 'Enter' && addPendingOutcome()}
+                                />
+                                <button
+                                    onClick={addPendingOutcome}
+                                    disabled={!newOutcomeText.trim()}
+                                    className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 disabled:opacity-50 transition-colors flex items-center gap-2"
+                                >
+                                    <Plus size={16} /> Add
+                                </button>
+                            </div>
+                        </div>
+                        <div className="px-6 py-4 border-t border-gray-700 bg-gray-800/50 flex justify-end gap-3">
+                            <button
+                                onClick={() => setShowPendingModal(false)}
+                                className="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium hover:bg-gray-600 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={saveApprovedOutcomes}
+                                disabled={isSavingOutcomes || pendingOutcomes.length === 0}
+                                className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                            >
+                                {isSavingOutcomes ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                                Save {pendingOutcomes.length} Outcomes
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ===== ANALYTICS MODAL ===== */}
+            {showAnalytics && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm">
+                    <div className="bg-gray-900 rounded-2xl border border-purple-500/50 shadow-2xl shadow-purple-500/20 w-full max-w-5xl max-h-[90vh] mx-4 flex flex-col">
+                        {/* Header */}
+                        <div className="bg-gradient-to-r from-indigo-600/30 to-purple-600/30 px-6 py-4 border-b border-gray-700 flex items-center justify-between shrink-0">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-purple-500/20 rounded-lg">
+                                    <BarChart size={22} className="text-purple-400" />
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-white text-lg">Quiz Performance Analytics</h3>
+                                    <p className="text-sm text-gray-400">Class results and learning outcome achievement</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setShowAnalytics(false)}
+                                className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+                            >
+                                <X size={20} className="text-gray-400" />
+                            </button>
+                        </div>
+
+                        {/* Content */}
+                        <div className="p-6 overflow-y-auto flex-1">
+                            {isAnalyticsLoading ? (
+                                <div className="flex flex-col items-center justify-center py-20">
+                                    <Loader2 size={40} className="animate-spin text-purple-500 mb-4" />
+                                    <p className="text-gray-400">Loading analytics data...</p>
+                                </div>
+                            ) : !analyticsData ? (
+                                <div className="flex flex-col items-center justify-center py-20 text-center">
+                                    <AlertCircle size={40} className="text-red-400 mb-4" />
+                                    <p className="text-white font-medium">Failed to load analytics</p>
+                                    <p className="text-gray-400 text-sm">Please try again later.</p>
+                                </div>
+                            ) : analyticsData.total_submissions === 0 ? (
+                                <div className="flex flex-col items-center justify-center py-20 text-center">
+                                    <div className="w-16 h-16 bg-gray-800 rounded-full flex items-center justify-center mb-4">
+                                        <Users size={32} className="text-gray-500" />
+                                    </div>
+                                    <h4 className="text-lg font-semibold text-white mb-2">No Submissions Yet</h4>
+                                    <p className="text-gray-400 max-w-sm">Students haven't taken this quiz yet. Analytics will appear here once responses are submitted.</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    {/* Stats grid */}
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                        <div className="bg-gray-800/80 rounded-xl p-4 border border-gray-700">
+                                            <p className="text-sm text-gray-400 mb-1">Total Submissions</p>
+                                            <p className="text-2xl font-bold text-white flex items-center gap-2">
+                                                <Users size={20} className="text-blue-400" />
+                                                {analyticsData.total_submissions}
+                                            </p>
+                                        </div>
+                                        <div className="bg-gray-800/80 rounded-xl p-4 border border-gray-700">
+                                            <p className="text-sm text-gray-400 mb-1">Class Average</p>
+                                            <p className="text-2xl font-bold text-white flex items-center gap-2">
+                                                <Target size={20} className="text-emerald-400" />
+                                                {analyticsData.stats.average_percentage}%
+                                            </p>
+                                        </div>
+                                        <div className="bg-gray-800/80 rounded-xl p-4 border border-gray-700">
+                                            <p className="text-sm text-gray-400 mb-1">Highest Score</p>
+                                            <p className="text-2xl font-bold text-white flex items-center gap-2">
+                                                <TrendingUp size={20} className="text-indigo-400" />
+                                                {analyticsData.stats.max_score} / {analyticsData.stats.max_total}
+                                            </p>
+                                        </div>
+                                        <div className="bg-gray-800/80 rounded-xl p-4 border border-gray-700">
+                                            <p className="text-sm text-gray-400 mb-1">Pass Rate (&ge;60%)</p>
+                                            <p className="text-2xl font-bold text-white flex items-center gap-2">
+                                                <CheckCheck size={20} className="text-green-400" />
+                                                {Math.round((analyticsData.pass_fail.passed / analyticsData.total_submissions) * 100)}%
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                        {/* Score Distribution (Histogram) */}
+                                        <div className="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
+                                            <h4 className="font-semibold text-white mb-4 flex items-center gap-2">
+                                                <BarChart size={18} className="text-blue-400" />
+                                                Score Distribution
+                                            </h4>
+                                            <div className="h-64">
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <RechartsBarChart data={analyticsData.score_distribution} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                                        <XAxis dataKey="range" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                                                        <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} allowDecimals={false} />
+                                                        <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ backgroundColor: '#1f2937', borderColor: '#374151', borderRadius: '0.5rem', color: '#fff' }} />
+                                                        <Bar dataKey="count" fill="#6366f1" radius={[4, 4, 0, 0]}>
+                                                            {analyticsData.score_distribution.map((entry: any, index: number) => (
+                                                                <Cell key={`cell-${index}`} fill={index > 2 ? '#34d399' : index === 2 ? '#fbbf24' : '#f87171'} />
+                                                            ))}
+                                                        </Bar>
+                                                    </RechartsBarChart>
+                                                </ResponsiveContainer>
+                                            </div>
+                                        </div>
+
+                                        {/* Pass / Fail Pie Chart */}
+                                        <div className="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
+                                            <h4 className="font-semibold text-white mb-4 flex items-center gap-2">
+                                                <Target size={18} className="text-emerald-400" />
+                                                Pass vs Fail Ratio
+                                            </h4>
+                                            <div className="h-64 flex items-center justify-center">
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <PieChart>
+                                                        <Pie
+                                                            data={[
+                                                                { name: 'Passed', value: analyticsData.pass_fail.passed },
+                                                                { name: 'Failed', value: analyticsData.pass_fail.failed }
+                                                            ]}
+                                                            cx="50%"
+                                                            cy="50%"
+                                                            labelLine={false}
+                                                            outerRadius={80}
+                                                            fill="#8884d8"
+                                                            dataKey="value"
+                                                            label={({ name, percent }) => percent > 0 ? `${name} ${(percent * 100).toFixed(0)}%` : ''}
+                                                        >
+                                                            <Cell fill="#34d399" />
+                                                            <Cell fill="#f87171" />
+                                                        </Pie>
+                                                        <Tooltip contentStyle={{ backgroundColor: '#1f2937', borderColor: '#374151', borderRadius: '0.5rem', color: '#fff' }} />
+                                                    </PieChart>
+                                                </ResponsiveContainer>
+                                            </div>
+                                        </div>
+
+                                        {/* Learning Outcome Achievement (Horizontal Bar) */}
+                                        <div className="bg-gray-800/50 rounded-xl p-5 border border-gray-700 lg:col-span-2">
+                                            <h4 className="font-semibold text-white mb-4 flex items-center gap-2">
+                                                <Brain size={18} className="text-purple-400" />
+                                                Learning Outcome Achievement
+                                            </h4>
+                                            <div className="h-72">
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <RechartsBarChart
+                                                        data={analyticsData.learning_outcome_achievement}
+                                                        layout="vertical"
+                                                        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                                                    >
+                                                        <XAxis type="number" domain={[0, 100]} stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                                                        <YAxis dataKey="outcome" type="category" stroke="#9ca3af" fontSize={11} width={150} tickLine={false} axisLine={false} />
+                                                        <Tooltip
+                                                            cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                                                            contentStyle={{ backgroundColor: '#1f2937', borderColor: '#374151', borderRadius: '0.5rem', color: '#fff' }}
+                                                            formatter={(val) => [`${val}%`, 'Accuracy']}
+                                                        />
+                                                        <Bar dataKey="percentage" name="Accuracy" radius={[0, 4, 4, 0]}>
+                                                            {analyticsData.learning_outcome_achievement.map((entry: any, index: number) => (
+                                                                <Cell key={`cell-${index}`} fill={entry.percentage >= 70 ? '#10b981' : entry.percentage >= 40 ? '#f59e0b' : '#ef4444'} />
+                                                            ))}
+                                                        </Bar>
+                                                    </RechartsBarChart>
+                                                </ResponsiveContainer>
+                                            </div>
+                                        </div>
+
+                                        {/* Difficulty Breakdown (Doughnut) */}
+                                        <div className="bg-gray-800/50 rounded-xl p-5 border border-gray-700 lg:col-span-2">
+                                            <h4 className="font-semibold text-white mb-4 flex items-center gap-2">
+                                                <Wand2 size={18} className="text-pink-400" />
+                                                Performance by Question Difficulty
+                                            </h4>
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                {analyticsData.difficulty_breakdown.map((diff: any, idx: number) => (
+                                                    <div key={idx} className="bg-gray-900/50 rounded-lg p-4 border border-gray-700/50 flex flex-col items-center">
+                                                        <span className={`text-sm font-medium mb-2 ${diff.difficulty === 'Beginner' ? 'text-green-400' : diff.difficulty === 'Intermediate' ? 'text-yellow-400' : 'text-red-400'}`}>
+                                                            {diff.difficulty} Breakdown
+                                                        </span>
+                                                        <div className="h-32 w-full">
+                                                            <ResponsiveContainer width="100%" height="100%">
+                                                                <PieChart>
+                                                                    <Pie
+                                                                        data={[
+                                                                            { name: 'Correct', value: diff.correct },
+                                                                            { name: 'Incorrect', value: diff.incorrect }
+                                                                        ]}
+                                                                        cx="50%"
+                                                                        cy="50%"
+                                                                        innerRadius={30}
+                                                                        outerRadius={50}
+                                                                        fill="#8884d8"
+                                                                        dataKey="value"
+                                                                    >
+                                                                        <Cell fill="#34d399" />
+                                                                        <Cell fill="#f87171" />
+                                                                    </Pie>
+                                                                    <Tooltip contentStyle={{ backgroundColor: '#1f2937', borderColor: '#374151', borderRadius: '0.5rem', color: '#fff' }} />
+                                                                </PieChart>
+                                                            </ResponsiveContainer>
+                                                        </div>
+                                                        <div className="mt-2 text-center w-full">
+                                                            <div className="flex justify-between text-xs text-gray-400 mb-1">
+                                                                <span>Accuracy:</span>
+                                                                <span className="font-bold text-white">{diff.percentage}%</span>
+                                                            </div>
+                                                            <div className="w-full bg-gray-700 rounded-full h-1.5">
+                                                                <div className={`h-1.5 rounded-full ${diff.percentage >= 70 ? 'bg-emerald-500' : diff.percentage >= 40 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${diff.percentage}%` }}></div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                {analyticsData.difficulty_breakdown.length === 0 && (
+                                                    <div className="col-span-3 text-center py-8 text-gray-500 text-sm">
+                                                        No difficulty data available
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
     );
 }

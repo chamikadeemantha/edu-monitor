@@ -49,6 +49,10 @@ from models.auth.routes import router as auth_router
 from database import engine, Base, SessionLocal
 from models.auth.seeder import seed_users
 
+# Import models so Base can see them
+import models.auth.models
+from modules.performance.models import LearningOutcome, Quiz, QuizQuestion, QuizResponse
+
 # Create DB tables
 Base.metadata.create_all(bind=engine)
 from fastapi.middleware.cors import CORSMiddleware
@@ -99,6 +103,17 @@ async def startup_event():
         logger.error(f"⚠️  Database seeding failed: {e}")
     finally:
         db.close()
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup resources on shutdown."""
+    logger.info("Shutting down EduMonitor Backend...")
+    try:
+        from modules.performance.vector_store import close_qdrant_client
+        close_qdrant_client()
+    except Exception as e:
+        logger.error(f"Error during Qdrant cleanup: {e}")
 
 
 # Enable CORS for Next.js frontend
