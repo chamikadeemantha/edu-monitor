@@ -319,10 +319,9 @@ def run_inference(video_path=None, show_video=False):
                         for i, tid in enumerate(batch_tids):
                             current_probs = all_probs[i] # array of 4 probabilities
                             
-                            # Probabilities for specific classes:
-                            # Index 0: Listening (0), Index 1: Working (1), Index 2: Sleeping (3), Index 3: Turned Away (4)
-                            p0, p1, p3, p4 = current_probs[0], current_probs[1], current_probs[2], current_probs[3]
-                            p2 = 0.0 # Hand Raised (not in local training set)
+                            # Probabilities for specific classes: 
+                            # 0: Listening, 1: Working, 2: Hand Raised, 3: Sleeping, 4: Turned Away
+                            p0, p1, p2, p3, p4 = current_probs[0], current_probs[1], current_probs[2], current_probs[3], current_probs[4]
                             
                             on_task_prob = p0 + p1 + p2
                             off_task_prob = p3 + p4
@@ -335,35 +334,26 @@ def run_inference(video_path=None, show_video=False):
                             # 3. Determine framing label for this frame
                             if is_hand_raised:
                                 frame_label = 2 # Hand Raised
-                            elif off_task_prob > 0.75: # Strict threshold (0.75) for Off-Task
-                                frame_label = 3 if p3 > p4 else 4
                             else:
-                                frame_label = 0 if p0 > p1 else 1
+                                raw_pred = int(np.argmax(current_probs))
+                                frame_label = raw_pred # 1:1 mapping now (0, 1, 2, 3, 4)
                                 
-                            # 4. Smoothing and Hysteresis
-                            last_label, _ = engagement_state.get(tid, (0, 0.0))
-                            was_on_task = last_label in [0, 1, 2]
-                            
-                            # If they were previously On-Task, stay On-Task unless off-task is VERY certain
-                            if was_on_task and off_task_prob < 0.85:
-                                frame_label = last_label if frame_label in [3, 4] else frame_label
-
+                            # 4. Temporal Filter (60% Off-Task Threshold)
                             prediction_history[tid].append(frame_label)
                             
-                            # Final decision based on majority vote
                             counts = np.bincount(prediction_history[tid], minlength=5)
-                            final_pred = np.argmax(counts)
                             
-                            # 5. Temporal Filter: "Confirmed Off-Task"
-                            # We only show Off-Task if the student HAS been Off-Task for at least 2 consecutive seconds
-                            # (2 seconds / 0.1s update freq = 20 frames)
-                            is_currently_off_task = final_pred in [3, 4]
-                            history_list = list(prediction_history[tid])
-                            recent_off_task = all(l in [3, 4] for l in history_list[-20:]) # 2 seconds confirmation
+                            # Calculate total on-task vs off-task frames in the window
+                            frames_on_task = counts[0] + counts[1] + counts[2]
+                            frames_off_task = counts[3] + counts[4]
                             
-                            if is_currently_off_task and not recent_off_task:
-                                # Keep showing previous on-task label until confirmed
-                                final_pred = last_label if was_on_task else 0 
+                            # Require at least 75% of recent frames (15 out of 20) to be off-task to switch states
+                            if frames_off_task >= 15:
+                                final_pred = 3 if counts[3] > counts[4] else 4
+                            else:
+                                # Default to On-Task majority if not enough off-task frames
+                                final_pred = 0 if counts[0] > counts[1] else 1
+
 
                             engagement_state[tid] = (final_pred, float(np.max(current_probs)))
 
