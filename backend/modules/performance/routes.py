@@ -4,10 +4,12 @@ Handles lecture content upload, transcript processing, AI-powered summarization/
 learning outcomes management, and AI quiz generation.
 Gracefully handles cases when Ollama LLM is not available.
 """
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List
+from sqlalchemy.orm import Session
+from database import get_db
 import json
 import logging
 import os
@@ -37,7 +39,8 @@ from .llm_service import (
     get_available_models
 )
 from .learning_outcomes import (
-    upload_learning_outcomes,
+    extract_learning_outcomes,
+    save_approved_outcomes,
     get_learning_outcomes,
     delete_learning_outcome,
     clear_all_outcomes,
@@ -51,6 +54,7 @@ from .quiz_service import (
     get_released_quizzes,
     submit_quiz_response,
     get_quiz_responses,
+    get_quiz_analytics,
 )
 
 logger = logging.getLogger(__name__)
@@ -96,6 +100,12 @@ class QuizSubmitRequest(BaseModel):
     answers: List[QuizAnswerItem]
 
 
+class SaveOutcomesRequest(BaseModel):
+    """Request body for saving teacher-approved learning outcomes."""
+    outcomes: List[str]
+    source_filename: str
+
+
 @router.get("/health")
 async def health_check():
     """Check health of the performance module and dependencies."""
@@ -118,8 +128,7 @@ async def health_check():
 async def upload_lecture_slides(file: UploadFile = File(...)):
     """
     Upload lecture slides (PDF) for processing and storage.
-    Runs in a SEPARATE PROCESS to avoid [WinError 6] crashes on Windows
-    when ChromaDB (ONNX) conflicts with PyTorch/TensorFlow threads.
+    Runs in the main process (now safe since migration to Qdrant).
     """
     # Validate file type
     if not file.filename.lower().endswith(('.pdf', '.txt')):
@@ -129,63 +138,34 @@ async def upload_lecture_slides(file: UploadFile = File(...)):
         )
     
     try:
-        # Create a temp file to pass to the worker
-        temp_dir = os.path.join(os.path.dirname(__file__), "temp")
-        os.makedirs(temp_dir, exist_ok=True)
-        temp_path = os.path.join(temp_dir, file.filename)
+        content = await file.read()
         
-        with open(temp_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
+        # Extract text and chunk it
+        chunks = process_document(content, file.filename)
         
-        # Run worker script in separate process
-        worker_script = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "ingest_worker.py")
-        
-        result = subprocess.run(
-            [sys.executable, worker_script, temp_path, file.filename],
-            capture_output=True,
-            text=True
+        if not chunks:
+            raise ValueError("No meaningful text could be extracted from the file.")
+            
+        # Store in vector database
+        num_stored = add_documents(
+            texts=chunks,
+            source="slides",
+            metadata={"filename": file.filename, "type": "lecture_slides"}
         )
         
-        if result.returncode != 0:
-            logger.error(f"Ingest worker failed: {result.stderr}")
-            raise RuntimeError(f"Ingestion process failed: {result.stderr}")
-            
-        # Parse result
-        try:
-            # Extract JSON from stdout just in case C-level logs spilled in
-            stdout_text = result.stdout.strip()
-            # Find the last line that looks like a JSON dictionary, since the worker writes JSON last
-            json_text = stdout_text
-            for line in reversed(stdout_text.splitlines()):
-                if line.strip().startswith("{") and line.strip().endswith("}"):
-                    json_text = line.strip()
-                    break
-            
-            output = json.loads(json_text)
-
-            if not output.get("success"):
-                error_msg = output.get("error", "Unknown ingestion error")
-                logger.error(f"Ingest failed: {error_msg}")
-                raise RuntimeError(error_msg)
-                
-            num_stored = output.get("chunks_stored", 0)
-            sample_chunk = output.get("sample_chunk")
-            
-            logger.info(f"Uploaded and stored {num_stored} chunks from {file.filename}")
-            
-            return StatusResponse(
-                success=True,
-                message=f"Successfully processed and stored {num_stored} content chunks",
-                data={
-                    "filename": file.filename,
-                    "chunks_stored": num_stored,
-                    "sample_chunk": sample_chunk
-                }
-            )
-            
-        except json.JSONDecodeError:
-            logger.error(f"Invalid JSON from worker: {result.stdout}")
-            raise RuntimeError(f"Worker returned invalid response: {result.stdout}")
+        logger.info(f"Uploaded and stored {num_stored} chunks from {file.filename}")
+        
+        sample_chunk = chunks[0] if chunks else ""
+        
+        return StatusResponse(
+            success=True,
+            message=f"Successfully processed and stored {num_stored} content chunks",
+            data={
+                "filename": file.filename,
+                "chunks_stored": num_stored,
+                "sample_chunk": sample_chunk[:200] + "..." if len(sample_chunk) > 200 else sample_chunk
+            }
+        )
 
     except Exception as e:
         logger.error(f"Upload processing error: {e}")
@@ -481,28 +461,31 @@ async def transcribe_audio_chunk(file: UploadFile = File(...)):
         # Transcribe locally with Faster Whisper
         transcript = transcribe_audio(audio_bytes, filename=file.filename or "audio.webm")
 
-        if not transcript:
+        # Filter common Whisper hallucinations (when mic is muted but recording)
+        hallucinations = ["thank you.", "bye.", "subscribe", "thanks for watching", "subtitles by"]
+        lower_transcript = transcript.lower().strip()
+        
+        is_hallucination = any(h in lower_transcript for h in hallucinations) or len(lower_transcript) < 5
+        
+        if not transcript or is_hallucination:
             return StatusResponse(
                 success=True,
-                message="No speech detected in audio chunk",
+                message="No speech detected (or silenced hallucination)",
                 data={"transcript": "", "chunks_stored": 0}
             )
 
-        # Store in vector database (raw, no filtering)
-        num_stored = add_documents(
-            texts=[transcript],
-            source="transcript",
-            metadata={"type": "live_speech", "method": "whisper_local", "raw": True}
-        )
+        # We intentionally DO NOT save the transcript to the vector DB here!
+        # The frontend handles saving it by calling the `/transcript` endpoint
+        # if the teacher has the "Auto-Save" toggle enabled.
 
-        logger.info(f"Transcribed and stored: {len(transcript)} chars, {num_stored} chunks")
+        logger.info(f"Transcribed successfully: {len(transcript)} chars (NOT automatically saved)")
 
         return StatusResponse(
             success=True,
-            message=f"Transcribed and stored {num_stored} chunks",
+            message="Transcribed successfully",
             data={
                 "transcript": transcript,
-                "chunks_stored": num_stored,
+                "chunks_stored": 0,
                 "audio_size": len(audio_bytes),
             }
         )
@@ -518,44 +501,64 @@ async def transcribe_audio_chunk(file: UploadFile = File(...)):
 
 @router.post("/learning-outcomes/upload", response_model=StatusResponse)
 async def upload_outcomes(file: UploadFile = File(...)):
-    """Upload a learning outcomes PDF/TXT and parse individual outcomes."""
+    """Upload a learning outcomes PDF/TXT and extract individual outcomes without saving them."""
     if not file.filename.lower().endswith(('.pdf', '.txt')):
         raise HTTPException(status_code=400, detail="Only PDF and TXT files are supported")
     try:
         content = await file.read()
-        result = upload_learning_outcomes(content, file.filename)
+        extracted = extract_learning_outcomes(content, file.filename)
         return StatusResponse(
             success=True,
-            message=f"Successfully parsed {result['outcomes_added']} learning outcomes",
+            message=f"Successfully extracted {len(extracted)} proposed learning outcomes",
+            data={
+                "extracted_outcomes": extracted,
+                "source_filename": file.filename
+            },
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Learning outcomes extraction error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/learning-outcomes/save", response_model=StatusResponse)
+async def save_outcomes_endpoint(request: SaveOutcomesRequest, db: Session = Depends(get_db)):
+    """Save teacher-approved learning outcomes to the database."""
+    try:
+        result = save_approved_outcomes(request.outcomes, request.source_filename, db)
+        return StatusResponse(
+            success=True,
+            message=f"Successfully saved {result['outcomes_added']} learning outcomes",
             data=result,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logger.error(f"Learning outcomes upload error: {e}")
+        logger.error(f"Learning outcomes save error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/learning-outcomes")
-async def list_outcomes():
+async def list_outcomes(db: Session = Depends(get_db)):
     """Get all stored learning outcomes."""
-    outcomes = get_learning_outcomes()
+    outcomes = get_learning_outcomes(db)
     return {"success": True, "count": len(outcomes), "outcomes": outcomes}
 
 
 @router.delete("/learning-outcomes/{outcome_id}")
-async def remove_outcome(outcome_id: str):
+async def remove_outcome(outcome_id: str, db: Session = Depends(get_db)):
     """Delete a specific learning outcome."""
-    deleted = delete_learning_outcome(outcome_id)
+    deleted = delete_learning_outcome(outcome_id, db)
     if not deleted:
         raise HTTPException(status_code=404, detail="Learning outcome not found")
     return StatusResponse(success=True, message="Learning outcome deleted")
 
 
 @router.delete("/learning-outcomes")
-async def clear_outcomes():
+async def clear_outcomes(db: Session = Depends(get_db)):
     """Clear all learning outcomes."""
-    count = clear_all_outcomes()
+    count = clear_all_outcomes(db)
     return StatusResponse(success=True, message=f"Cleared {count} learning outcomes")
 
 
@@ -564,10 +567,11 @@ async def clear_outcomes():
 # ═══════════════════════════════════════════════════════════════════════════
 
 @router.post("/quiz/generate")
-async def generate_quiz_endpoint(request: QuizGenerateRequest):
+async def generate_quiz_endpoint(request: QuizGenerateRequest, db: Session = Depends(get_db)):
     """Generate a quiz from lecture content aligned with learning outcomes."""
     try:
         quiz = generate_quiz(
+            db=db,
             num_questions=request.num_questions,
             difficulty=request.difficulty,
         )
@@ -582,48 +586,55 @@ async def generate_quiz_endpoint(request: QuizGenerateRequest):
 
 
 @router.get("/quizzes")
-async def list_quizzes():
+async def list_quizzes(db: Session = Depends(get_db)):
     """Get all generated quizzes (teacher view)."""
-    quizzes = get_all_quizzes()
+    quizzes = get_all_quizzes(db)
     return {"success": True, "count": len(quizzes), "quizzes": quizzes}
 
 
+@router.get("/quiz/responses/all")
+async def get_all_responses(db: Session = Depends(get_db)):
+    """Get all student responses across all quizzes."""
+    responses = get_quiz_responses(db=db)
+    return {"success": True, "count": len(responses), "responses": responses}
+
+
 @router.get("/quiz/released")
-async def list_released_quizzes():
+async def list_released_quizzes(db: Session = Depends(get_db)):
     """Get released quizzes (student view)."""
-    quizzes = get_released_quizzes()
+    quizzes = get_released_quizzes(db)
     return {"success": True, "count": len(quizzes), "quizzes": quizzes}
 
 
 @router.get("/quiz/{quiz_id}")
-async def get_quiz_endpoint(quiz_id: str):
+async def get_quiz_endpoint(quiz_id: str, db: Session = Depends(get_db)):
     """Get a specific quiz."""
-    quiz = get_quiz(quiz_id)
+    quiz = get_quiz(quiz_id, db)
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz not found")
     return {"success": True, "quiz": quiz}
 
 
 @router.put("/quiz/{quiz_id}/release")
-async def release_quiz_endpoint(quiz_id: str):
+async def release_quiz_endpoint(quiz_id: str, db: Session = Depends(get_db)):
     """Release a quiz to students."""
-    quiz = release_quiz(quiz_id)
+    quiz = release_quiz(quiz_id, db)
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz not found")
     return StatusResponse(success=True, message="Quiz released to students", data={"quiz_id": quiz_id})
 
 
 @router.delete("/quiz/{quiz_id}")
-async def delete_quiz_endpoint(quiz_id: str):
+async def delete_quiz_endpoint(quiz_id: str, db: Session = Depends(get_db)):
     """Delete a quiz."""
-    deleted = delete_quiz(quiz_id)
+    deleted = delete_quiz(quiz_id, db)
     if not deleted:
         raise HTTPException(status_code=404, detail="Quiz not found")
     return StatusResponse(success=True, message="Quiz deleted")
 
 
 @router.post("/quiz/{quiz_id}/submit")
-async def submit_quiz(quiz_id: str, request: QuizSubmitRequest):
+async def submit_quiz(quiz_id: str, request: QuizSubmitRequest, db: Session = Depends(get_db)):
     """Submit student answers for a quiz."""
     try:
         result = submit_quiz_response(
@@ -631,6 +642,7 @@ async def submit_quiz(quiz_id: str, request: QuizSubmitRequest):
             student_id=request.student_id,
             student_name=request.student_name,
             answers=[a.dict() for a in request.answers],
+            db=db,
         )
         return {"success": True, "result": result}
     except ValueError as e:
@@ -641,7 +653,23 @@ async def submit_quiz(quiz_id: str, request: QuizSubmitRequest):
 
 
 @router.get("/quiz/{quiz_id}/responses")
-async def get_responses(quiz_id: str):
+async def get_responses(quiz_id: str, db: Session = Depends(get_db)):
     """Get all student responses for a quiz."""
-    responses = get_quiz_responses(quiz_id)
+    responses = get_quiz_responses(quiz_id, db)
     return {"success": True, "count": len(responses), "responses": responses}
+
+
+@router.get("/quiz/{quiz_id}/analytics")
+async def quiz_analytics(quiz_id: str, db: Session = Depends(get_db)):
+    """Get aggregated analytics for a quiz."""
+    try:
+        analytics = get_quiz_analytics(quiz_id, db)
+        return {"success": True, "analytics": analytics}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Quiz analytics error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+

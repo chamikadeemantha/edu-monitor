@@ -3,62 +3,18 @@ AI Quiz Generation Service
 Generates MCQ quizzes from lecture content aligned with learning outcomes using Ollama LLM.
 Stores quizzes and student responses in JSON files.
 """
-import json
 import logging
-import os
 import re
 import uuid
-from datetime import datetime
 from typing import List, Dict, Optional
+from sqlalchemy.orm import Session
 
 from .llm_service import generate_complete, is_ollama_available
 from .vector_store import get_all_content
 from .learning_outcomes import get_learning_outcomes
+from .models import Quiz, QuizQuestion, QuizResponse
 
 logger = logging.getLogger(__name__)
-
-# Storage paths
-_DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
-_QUIZZES_FILE = os.path.join(_DATA_DIR, "quizzes.json")
-_RESPONSES_FILE = os.path.join(_DATA_DIR, "quiz_responses.json")
-
-
-def _ensure_data_dir():
-    os.makedirs(_DATA_DIR, exist_ok=True)
-
-
-def _load_quizzes() -> List[Dict]:
-    _ensure_data_dir()
-    if not os.path.exists(_QUIZZES_FILE):
-        return []
-    try:
-        with open(_QUIZZES_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, IOError):
-        return []
-
-
-def _save_quizzes(quizzes: List[Dict]):
-    _ensure_data_dir()
-    with open(_QUIZZES_FILE, "w", encoding="utf-8") as f:
-        json.dump(quizzes, f, indent=2, default=str)
-
-
-def _load_responses() -> List[Dict]:
-    _ensure_data_dir()
-    if not os.path.exists(_RESPONSES_FILE):
-        return []
-    try:
-        with open(_RESPONSES_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, IOError):
-        return []
-
-
-def _save_responses(responses: List[Dict]):
-    _ensure_data_dir()
-    with open(_RESPONSES_FILE, "w", encoding="utf-8") as f:
-        json.dump(responses, f, indent=2, default=str)
 
 
 # ─── LLM Prompt ────────────────────────────────────────────────────────────
@@ -182,6 +138,7 @@ def _parse_quiz_json(raw: str) -> List[Dict]:
 
 
 def generate_quiz(
+    db: Session,
     num_questions: int = 5,
     difficulty: str = "Intermediate",
 ) -> Dict:
@@ -189,6 +146,7 @@ def generate_quiz(
     Generate a quiz using Ollama LLM based on lecture content and learning outcomes.
     
     Args:
+        db: Database session
         num_questions: Number of questions to generate (1-15)
         difficulty: One of Beginner, Intermediate, Advanced
 
@@ -201,7 +159,7 @@ def generate_quiz(
         )
 
     # Get learning outcomes
-    outcomes = get_learning_outcomes()
+    outcomes = get_learning_outcomes(db)
     if not outcomes:
         raise ValueError(
             "No learning outcomes found. Please upload a learning outcomes PDF first."
@@ -280,67 +238,101 @@ def generate_quiz(
         )
 
     # Create quiz object
-    quiz = {
-        "id": str(uuid.uuid4()),
-        "questions": validated,
-        "difficulty": difficulty,
-        "num_questions": len(validated),
-        "status": "draft",  # draft | released
-        "created_at": datetime.utcnow().isoformat(),
-        "released_at": None,
-    }
+    quiz_db = Quiz(
+        difficulty=difficulty,
+        num_questions=len(validated),
+        status="draft"
+    )
+    db.add(quiz_db)
+    db.flush()  # To get quiz_db.id
 
-    # Save
-    quizzes = _load_quizzes()
-    quizzes.append(quiz)
-    _save_quizzes(quizzes)
+    db_questions = []
+    for q in validated:
+        db_q = QuizQuestion(
+            quiz_id=quiz_db.id,
+            question=q["question"],
+            options=q["options"],
+            correct_answer=q["correctAnswer"],
+            learning_outcome=q["learningOutcome"],
+            difficulty=q["difficulty"]
+        )
+        db.add(db_q)
+        db_questions.append(db_q)
 
-    logger.info(f"Generated quiz {quiz['id']} with {len(validated)} questions")
-    return quiz
+    db.commit()
+
+    logger.info(f"Generated quiz {quiz_db.id} with {len(validated)} questions")
+    return get_quiz(quiz_db.id, db)
 
 
 # ─── Quiz CRUD ──────────────────────────────────────────────────────────────
 
-def get_all_quizzes() -> List[Dict]:
+def _format_quiz(quiz: Quiz) -> Dict:
+    return {
+        "id": quiz.id,
+        "difficulty": quiz.difficulty,
+        "num_questions": quiz.num_questions,
+        "status": quiz.status,
+        "created_at": quiz.created_at.isoformat() if quiz.created_at else None,
+        "released_at": quiz.released_at.isoformat() if quiz.released_at else None,
+        "questions": [
+            {
+                "id": q.id,
+                "question": q.question,
+                "options": q.options,
+                "correctAnswer": q.correct_answer,
+                "learningOutcome": q.learning_outcome,
+                "difficulty": q.difficulty,
+            }
+            for q in quiz.questions
+        ]
+    }
+
+
+def get_all_quizzes(db: Session) -> List[Dict]:
     """Get all quizzes."""
-    return _load_quizzes()
+    quizzes = db.query(Quiz).order_by(Quiz.created_at.desc()).all()
+    return [_format_quiz(q) for q in quizzes]
 
 
-def get_quiz(quiz_id: str) -> Optional[Dict]:
+def get_quiz(quiz_id: str, db: Session) -> Optional[Dict]:
     """Get a specific quiz by ID."""
-    for q in _load_quizzes():
-        if q["id"] == quiz_id:
-            return q
-    return None
+    quiz = db.query(Quiz).filter(Quiz.id == quiz_id).first()
+    if not quiz:
+        return None
+    return _format_quiz(quiz)
 
 
-def release_quiz(quiz_id: str) -> Optional[Dict]:
+def release_quiz(quiz_id: str, db: Session) -> Optional[Dict]:
     """Mark a quiz as released to students."""
-    quizzes = _load_quizzes()
-    for q in quizzes:
-        if q["id"] == quiz_id:
-            q["status"] = "released"
-            q["released_at"] = datetime.utcnow().isoformat()
-            _save_quizzes(quizzes)
-            logger.info(f"Released quiz {quiz_id}")
-            return q
-    return None
+    from datetime import datetime
+    import pytz
+    quiz = db.query(Quiz).filter(Quiz.id == quiz_id).first()
+    if not quiz:
+        return None
+        
+    quiz.status = "released"
+    quiz.released_at = datetime.now(pytz.UTC)
+    db.commit()
+    logger.info(f"Released quiz {quiz_id}")
+    return _format_quiz(quiz)
 
 
-def delete_quiz(quiz_id: str) -> bool:
+def delete_quiz(quiz_id: str, db: Session) -> bool:
     """Delete a quiz."""
-    quizzes = _load_quizzes()
-    filtered = [q for q in quizzes if q["id"] != quiz_id]
-    if len(filtered) == len(quizzes):
+    quiz = db.query(Quiz).filter(Quiz.id == quiz_id).first()
+    if not quiz:
         return False
-    _save_quizzes(filtered)
+    db.delete(quiz)
+    db.commit()
     logger.info(f"Deleted quiz {quiz_id}")
     return True
 
 
-def get_released_quizzes() -> List[Dict]:
+def get_released_quizzes(db: Session) -> List[Dict]:
     """Get only released quizzes (student-facing)."""
-    return [q for q in _load_quizzes() if q["status"] == "released"]
+    quizzes = db.query(Quiz).filter(Quiz.status == "released").order_by(Quiz.released_at.desc()).all()
+    return [_format_quiz(q) for q in quizzes]
 
 
 # ─── Student Responses ──────────────────────────────────────────────────────
@@ -350,6 +342,7 @@ def submit_quiz_response(
     student_id: str,
     student_name: str,
     answers: List[Dict],
+    db: Session,
 ) -> Dict:
     """
     Submit a student's quiz answers.
@@ -359,20 +352,25 @@ def submit_quiz_response(
         student_id: Student identifier
         student_name: Student display name
         answers: List of {questionId, selectedAnswer}
+        db: Database session
     
     Returns:
         Results dict with score and per-question results
     """
-    quiz = get_quiz(quiz_id)
+    quiz = get_quiz(quiz_id, db)
     if not quiz:
         raise ValueError(f"Quiz {quiz_id} not found")
 
     # Grade the answers
     results = []
     correct_count = 0
+    answers_dict = {}
+    
     for ans in answers:
         q_id = ans.get("questionId")
         selected = ans.get("selectedAnswer")
+        answers_dict[str(q_id)] = selected
+        
         # Find matching question
         question = None
         for q in quiz["questions"]:
@@ -393,34 +391,207 @@ def submit_quiz_response(
         })
 
     # Build response record
-    response = {
-        "id": str(uuid.uuid4()),
-        "quiz_id": quiz_id,
-        "student_id": student_id,
-        "student_name": student_name,
-        "answers": results,
-        "score": correct_count,
-        "total": len(results),
-        "percentage": round(correct_count / len(results) * 100) if results else 0,
-        "submitted_at": datetime.utcnow().isoformat(),
-    }
-
-    # Save
-    responses = _load_responses()
-    responses.append(response)
-    _save_responses(responses)
+    db_response = QuizResponse(
+        quiz_id=quiz_id,
+        student_id=student_id,
+        student_name=student_name,
+        score=correct_count,
+        total_questions=len(results),
+        answers=answers_dict
+    )
+    db.add(db_response)
+    db.commit()
 
     logger.info(
         f"Student {student_name} submitted quiz {quiz_id}: "
         f"{correct_count}/{len(results)} correct"
     )
 
-    return response
+    percentage = round(correct_count / len(results) * 100) if results else 0
+
+    return {
+        "id": db_response.id,
+        "quiz_id": quiz_id,
+        "student_id": student_id,
+        "student_name": student_name,
+        "answers": results,
+        "score": correct_count,
+        "total": len(results),
+        "percentage": percentage,
+        "submitted_at": db_response.submitted_at.isoformat() if db_response.submitted_at else None,
+    }
+
+def _format_response(r: QuizResponse, quiz_data: Dict) -> Dict:
+    # Reconstruct the "answers" array format expected by the frontend
+    results = []
+    for q in quiz_data.get("questions", []):
+        q_id = str(q["id"])
+        if q_id in r.answers:
+            selected = r.answers[q_id]
+            is_correct = selected == q["correctAnswer"]
+            results.append({
+                "questionId": q["id"],
+                "selectedAnswer": selected,
+                "correctAnswer": q["correctAnswer"],
+                "isCorrect": is_correct,
+                "learningOutcome": q.get("learningOutcome", ""),
+            })
+            
+    percentage = round(r.score / r.total_questions * 100) if r.total_questions else 0
+
+    return {
+        "id": r.id,
+        "quiz_id": r.quiz_id,
+        "student_id": r.student_id,
+        "student_name": r.student_name,
+        "score": r.score,
+        "total": r.total_questions,
+        "percentage": percentage,
+        "answers": results,
+        "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
+    }
 
 
-def get_quiz_responses(quiz_id: Optional[str] = None) -> List[Dict]:
+def get_quiz_responses(quiz_id: Optional[str] = None, db: Session = None) -> List[Dict]:
     """Get student responses, optionally filtered by quiz ID."""
-    responses = _load_responses()
+    if not db:
+        return []
+        
+    query = db.query(QuizResponse)
     if quiz_id:
-        return [r for r in responses if r["quiz_id"] == quiz_id]
-    return responses
+        query = query.filter(QuizResponse.quiz_id == quiz_id)
+    
+    responses = query.order_by(QuizResponse.submitted_at.desc()).all()
+    
+    # We need the quiz data to format the responses properly
+    quiz_cache = {}
+    formatted = []
+    
+    for r in responses:
+        if r.quiz_id not in quiz_cache:
+            quiz_cache[r.quiz_id] = get_quiz(r.quiz_id, db) or {}
+        
+        formatted.append(_format_response(r, quiz_cache[r.quiz_id]))
+        
+    return formatted
+
+
+def get_quiz_analytics(quiz_id: str, db: Session) -> Dict:
+    """
+    Compute analytics for a quiz: stats, score distribution, pass/fail,
+    learning-outcome achievement, and difficulty breakdown.
+    """
+    quiz = get_quiz(quiz_id, db)
+    if not quiz:
+        raise ValueError(f"Quiz {quiz_id} not found")
+
+    responses = get_quiz_responses(quiz_id, db)
+    total_submissions = len(responses)
+
+    if total_submissions == 0:
+        return {
+            "quiz_id": quiz_id,
+            "total_submissions": 0,
+            "stats": None,
+            "score_distribution": [],
+            "pass_fail": {"passed": 0, "failed": 0},
+            "learning_outcome_achievement": [],
+            "difficulty_breakdown": [],
+        }
+
+    # --- Overall stats ---
+    percentages = [r.get("percentage", 0) for r in responses]
+    scores = [r.get("score", 0) for r in responses]
+    totals = [r.get("total", 1) for r in responses]
+    avg_pct = round(sum(percentages) / total_submissions, 1)
+    avg_score = round(sum(scores) / total_submissions, 1)
+    max_score = max(scores)
+    min_score = min(scores)
+    max_total = totals[0] if totals else 0
+
+    # --- Score distribution buckets ---
+    buckets = {"0-20%": 0, "21-40%": 0, "41-60%": 0, "61-80%": 0, "81-100%": 0}
+    for pct in percentages:
+        if pct <= 20:
+            buckets["0-20%"] += 1
+        elif pct <= 40:
+            buckets["21-40%"] += 1
+        elif pct <= 60:
+            buckets["41-60%"] += 1
+        elif pct <= 80:
+            buckets["61-80%"] += 1
+        else:
+            buckets["81-100%"] += 1
+    score_distribution = [{"range": k, "count": v} for k, v in buckets.items()]
+
+    # --- Pass / fail (>=60% = pass) ---
+    passed = sum(1 for p in percentages if p >= 60)
+    failed = total_submissions - passed
+
+    # --- Per-learning-outcome achievement ---
+    lo_stats: Dict[str, Dict] = {}  # lo_text -> {correct, total}
+    for resp in responses:
+        for ans in resp.get("answers", []):
+            lo = ans.get("learningOutcome", "General")
+            if lo not in lo_stats:
+                lo_stats[lo] = {"correct": 0, "total": 0}
+            lo_stats[lo]["total"] += 1
+            if ans.get("isCorrect"):
+                lo_stats[lo]["correct"] += 1
+
+    lo_achievement = []
+    for lo_text, st in lo_stats.items():
+        lo_achievement.append({
+            "outcome": lo_text[:80],  # truncate for chart labels
+            "correct": st["correct"],
+            "total": st["total"],
+            "percentage": round(st["correct"] / st["total"] * 100, 1) if st["total"] else 0,
+        })
+
+    # --- Difficulty breakdown ---
+    diff_stats: Dict[str, Dict] = {}
+    for q in quiz.get("questions", []):
+        diff = q.get("difficulty", "Unknown")
+        if diff not in diff_stats:
+            diff_stats[diff] = {"correct": 0, "total": 0}
+    for resp in responses:
+        for ans in resp.get("answers", []):
+            q_id = ans.get("questionId")
+            question = None
+            for q in quiz.get("questions", []):
+                if q["id"] == q_id:
+                    question = q
+                    break
+            if question:
+                diff = question.get("difficulty", "Unknown")
+                if diff not in diff_stats:
+                    diff_stats[diff] = {"correct": 0, "total": 0}
+                diff_stats[diff]["total"] += 1
+                if ans.get("isCorrect"):
+                    diff_stats[diff]["correct"] += 1
+
+    difficulty_breakdown = []
+    for diff, st in diff_stats.items():
+        difficulty_breakdown.append({
+            "difficulty": diff,
+            "correct": st["correct"],
+            "incorrect": st["total"] - st["correct"],
+            "total": st["total"],
+            "percentage": round(st["correct"] / st["total"] * 100, 1) if st["total"] else 0,
+        })
+
+    return {
+        "quiz_id": quiz_id,
+        "total_submissions": total_submissions,
+        "stats": {
+            "average_score": avg_score,
+            "average_percentage": avg_pct,
+            "max_score": max_score,
+            "min_score": min_score,
+            "max_total": max_total,
+        },
+        "score_distribution": score_distribution,
+        "pass_fail": {"passed": passed, "failed": failed},
+        "learning_outcome_achievement": lo_achievement,
+        "difficulty_breakdown": difficulty_breakdown,
+    }
