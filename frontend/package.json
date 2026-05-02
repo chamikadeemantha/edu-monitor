@@ -13,6 +13,9 @@
     "next": "16.1.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
+    "@mediapipe/pose": "latest",
+    "@mediapipe/drawing_utils": "latest",
+    "@mediapipe/camera_utils": "latest",
     "recharts": "^3.6.0"
   },
   "devDependencies": {
