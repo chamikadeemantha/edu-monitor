@@ -1,35 +1,8 @@
-# Fix for ChromaDB requiring newer sqlite3
 import sys
 import os
-import platform
-import ctypes
 
 # Fix for Protobuf conflict (MediaPipe vs others)
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
-
-# Windows-only: load newer sqlite3.dll so ChromaDB works
-# Looks in the project's own venv/DLLs folder (cross-machine safe)
-if platform.system() == "Windows":
-    _base_dir = os.path.dirname(os.path.abspath(__file__))
-    _sqlite_candidates = [
-        os.path.join(_base_dir, "venv", "DLLs", "sqlite3.dll"),
-        os.path.join(_base_dir, "sqlite3.dll"),
-    ]
-    for _dll_path in _sqlite_candidates:
-        try:
-            ctypes.CDLL(_dll_path)
-            break
-        except Exception:
-            continue
-
-# On Mac/Linux: replace sqlite3 with pysqlite3-binary if available (for ChromaDB)
-# On Windows: pysqlite3-binary has no build, so we rely on the sqlite3.dll loaded above
-if platform.system() != "Windows":
-    try:
-        __import__('pysqlite3')
-        sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-    except ImportError:
-        pass
 
 from fastapi import FastAPI
 from fastapi.responses import StreamingResponse, FileResponse
@@ -45,18 +18,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Import performance module routes - CHANGED FROM modules to models
-from models.performance.routes import router as performance_router
-
-# Teacher behavior API - CHANGED FROM modules to models
+# Import performance module routes (graceful if chromadb is broken)
 try:
-    from models.teacher_behavior.api import router as teacher_behavior_router
-except Exception:
+    from modules.performance.routes import router as performance_router
+except Exception as e:
+    logger.warning(f"⚠️  Performance module failed to load: {e}")
+    logger.warning("   - Upload, Summary, and Q&A features will be disabled")
+    performance_router = None
+
+# Teacher behavior API - CHANGED FROM models to modules
+try:
+    from modules.teacher_behavior.api import router as teacher_behavior_router
+except Exception as e:
+    logger.warning(f"⚠️  Teacher behavior router failed to load: {e}")
     teacher_behavior_router = None
-# teacher_behavior_router = None
 
 # CHANGED FROM modules to models
-from models.engagement.run_inference import run_inference, LATEST_STATS, STATS_HISTORY, LATEST_GROUP_STATS, set_group_visualization
+from modules.engagement.run_inference import run_inference, LATEST_STATS, STATS_HISTORY, LATEST_GROUP_STATS, set_group_visualization
 
 
 # def set_visual_style(style: str): pass
@@ -70,6 +48,10 @@ from models.attendance.routes import router as attendance_router
 from models.auth.routes import router as auth_router
 from database import engine, Base, SessionLocal
 from models.auth.seeder import seed_users
+
+# Import models so Base can see them
+import models.auth.models
+from modules.performance.models import LearningOutcome, Quiz, QuizQuestion, QuizResponse
 
 # Create DB tables
 Base.metadata.create_all(bind=engine)
@@ -123,6 +105,17 @@ async def startup_event():
         db.close()
 
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Cleanup resources on shutdown."""
+    logger.info("Shutting down EduMonitor Backend...")
+    try:
+        from modules.performance.vector_store import close_qdrant_client
+        close_qdrant_client()
+    except Exception as e:
+        logger.error(f"Error during Qdrant cleanup: {e}")
+
+
 # Enable CORS for Next.js frontend
 app.add_middleware(
     CORSMiddleware,
@@ -133,7 +126,8 @@ app.add_middleware(
 )
 
 # Register routers
-app.include_router(performance_router)
+if performance_router is not None:
+    app.include_router(performance_router)
 
 
 @app.get("/")
@@ -144,11 +138,11 @@ def read_root():
 if teacher_behavior_router is not None:
     app.include_router(teacher_behavior_router, prefix="/teacher_behavior")
 
-# Server-side teacher behavior inference (stream + stats) - CHANGED FROM modules to models
+# Server-side teacher behavior inference (stream + stats) - CHANGED FROM models to modules
 try:
-    from models.teacher_behavior.inference import run_teacher_inference, get_latest_stats
+    from modules.teacher_behavior.inference import run_teacher_inference, get_latest_stats
 except Exception as e:
-    print(f"CRITICAL: models.teacher_behavior.inference failed to import: {e}")
+    logger.critical(f"CRITICAL: modules.teacher_behavior.inference failed to import: {e}")
     run_teacher_inference = None
     def get_latest_stats():
         return {"behavior": "Unavailable", "mobility": 0.0, "orientation": 0.0, "hand_speed": 0.0}
@@ -203,7 +197,7 @@ class VisualStyleRequest(BaseModel):
 @app.post("/settings/visual-style")
 def set_visual_style_endpoint(req: VisualStyleRequest):
     # CHANGED FROM modules to models
-    from models.engagement.run_inference import set_visual_style
+    from modules.engagement.run_inference import set_visual_style
     set_visual_style(req.style)
     return {"status": "ok", "style": req.style}
 
@@ -214,12 +208,25 @@ class ZoneSettingsRequest(BaseModel):
 @app.post("/settings/zones")
 def set_zone_settings(req: ZoneSettingsRequest):
     # CHANGED FROM modules to models
-    from models.engagement.run_inference import set_zone_boundaries
+    from modules.engagement.run_inference import set_zone_boundaries
     set_zone_boundaries(req.back_split, req.front_split)
     return {"status": "ok", "zones": {"back": req.back_split, "front": req.front_split}}
 
+class ClassBoundaryRequest(BaseModel):
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+
+@app.post("/settings/class-boundary")
+def set_class_boundary_endpoint(req: ClassBoundaryRequest):
+    from modules.engagement.run_inference import set_class_boundary
+    set_class_boundary(req.x1, req.y1, req.x2, req.y2)
+    return {"status": "ok", "boundary": {"x1": req.x1, "y1": req.y1, "x2": req.x2, "y2": req.y2}}
+
 
 @app.get("/video_feed")
+
 def video_feed():
     if run_inference is None:
         return StreamingResponse(iter([b""]), media_type="multipart/x-mixed-replace; boundary=frame")

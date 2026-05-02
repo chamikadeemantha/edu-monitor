@@ -1,5 +1,6 @@
 "use client";
 import React, { useState, useRef, useCallback, useEffect } from 'react';
+import { useLocalSTT } from './useLocalSTT';
 import {
     Upload,
     Mic,
@@ -27,8 +28,13 @@ import {
     Plus,
     X,
     Settings,
-    Wand2
+    Wand2,
+    BarChart
 } from 'lucide-react';
+import {
+    BarChart as RechartsBarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+    PieChart, Pie, Cell, Legend
+} from 'recharts';
 
 // API Configuration
 const API_BASE_URL = "http://localhost:8000";
@@ -54,12 +60,8 @@ export default function StudentPerformanceSection() {
     const [isDragging, setIsDragging] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    // Transcription state
-    const [isRecording, setIsRecording] = useState(false);
-    const [transcript, setTranscript] = useState('');
-    const [interimTranscript, setInterimTranscript] = useState('');
+    // Transcription state (powered by Whisper)
     const [transcriptStatus, setTranscriptStatus] = useState<TranscriptStatus>({ status: 'idle', message: '' });
-    const recognitionRef = useRef<any>(null);
 
     // Auto-submit state
     const [autoSubmitEnabled, setAutoSubmitEnabled] = useState(true);
@@ -75,214 +77,293 @@ export default function StudentPerformanceSection() {
     // Stats
     const [contentStats, setContentStats] = useState<{ document_count: number } | null>(null);
 
+    // ===== LEARNING OUTCOMES STATE =====
+    interface LearningOutcome {
+        id: string;
+        text: string;
+        source_filename: string;
+        uploaded_at: string;
+    }
+    const [learningOutcomes, setLearningOutcomes] = useState<LearningOutcome[]>([]);
+    const [outcomeFile, setOutcomeFile] = useState<File | null>(null);
+    const [outcomeUploadStatus, setOutcomeUploadStatus] = useState<UploadStatus>({ status: 'idle', message: '' });
+    const outcomeFileRef = useRef<HTMLInputElement>(null);
+
+    // Pending outcomes state (for interactive selection)
+    const [pendingOutcomes, setPendingOutcomes] = useState<string[]>([]);
+    const [pendingOutcomeFileName, setPendingOutcomeFileName] = useState<string>('');
+    const [showPendingModal, setShowPendingModal] = useState(false);
+    const [newOutcomeText, setNewOutcomeText] = useState('');
+    const [isSavingOutcomes, setIsSavingOutcomes] = useState(false);
+
     // ===== QUIZ FEATURE STATE =====
     interface QuizQuestion {
         id: number;
-        topic: string;
         question: string;
         options: string[];
         correctAnswer: number;
-        difficulty: 'Beginner' | 'Intermediate' | 'Advanced';
+        learningOutcome: string;
+        difficulty: string;
+    }
+    interface Quiz {
+        id: string;
+        questions: QuizQuestion[];
+        difficulty: string;
+        num_questions: number;
+        status: string;
+        created_at: string;
+        released_at: string | null;
     }
 
-    interface StudentResponse {
-        studentId: string;
-        studentName: string;
-        questionId: number;
-        selectedAnswer: number;
-        isCorrect: boolean;
-        timestamp: Date;
-    }
-
-    // Available topics for quiz generation
-    const availableTopics = [
-        "Machine Learning",
-        "Data Structures",
-        "Neural Networks",
-        "Algorithms",
-        "Databases",
-        "Web Development",
-        "Python Programming",
-        "Computer Networks"
-    ];
-
-    // Hardcoded question bank by topic and difficulty
-    const questionBank: Record<string, Record<string, QuizQuestion[]>> = {
-        "Machine Learning": {
-            "Beginner": [
-                { id: 0, topic: "Machine Learning", difficulty: "Beginner", question: "What is supervised learning?", options: ["Learning without any data", "Learning from labeled training data", "Learning from unlabeled data only", "Learning without a computer"], correctAnswer: 1 },
-                { id: 0, topic: "Machine Learning", difficulty: "Beginner", question: "What is a training dataset?", options: ["Data used to test the model", "Data used to train the model", "Data used to validate only", "Random data"], correctAnswer: 1 },
-            ],
-            "Intermediate": [
-                { id: 0, topic: "Machine Learning", difficulty: "Intermediate", question: "What is overfitting?", options: ["Model performs well on all data", "Model memorizes training data but fails on new data", "Model is too simple", "Model trains too fast"], correctAnswer: 1 },
-                { id: 0, topic: "Machine Learning", difficulty: "Intermediate", question: "What is cross-validation?", options: ["Testing once", "Training without validation", "Splitting data into multiple folds for validation", "Using all data for training"], correctAnswer: 2 },
-            ],
-            "Advanced": [
-                { id: 0, topic: "Machine Learning", difficulty: "Advanced", question: "What is the bias-variance tradeoff?", options: ["Balancing model complexity vs generalization", "Choosing between two algorithms", "Training speed vs accuracy", "Data size vs model size"], correctAnswer: 0 },
-            ]
-        },
-        "Data Structures": {
-            "Beginner": [
-                { id: 0, topic: "Data Structures", difficulty: "Beginner", question: "What is an array?", options: ["A single variable", "A collection of elements at contiguous memory", "A type of loop", "A function"], correctAnswer: 1 },
-                { id: 0, topic: "Data Structures", difficulty: "Beginner", question: "What is a linked list?", options: ["An array with fixed size", "A sequence of nodes with pointers", "A type of tree", "A sorting algorithm"], correctAnswer: 1 },
-            ],
-            "Intermediate": [
-                { id: 0, topic: "Data Structures", difficulty: "Intermediate", question: "What is the time complexity of binary search?", options: ["O(n)", "O(n²)", "O(log n)", "O(1)"], correctAnswer: 2 },
-                { id: 0, topic: "Data Structures", difficulty: "Intermediate", question: "What is a hash table?", options: ["A sorted array", "A key-value storage with O(1) average lookup", "A binary tree", "A graph structure"], correctAnswer: 1 },
-            ],
-            "Advanced": [
-                { id: 0, topic: "Data Structures", difficulty: "Advanced", question: "What is the amortized time complexity of dynamic array insertion?", options: ["O(n)", "O(log n)", "O(1)", "O(n²)"], correctAnswer: 2 },
-            ]
-        },
-        "Neural Networks": {
-            "Beginner": [
-                { id: 0, topic: "Neural Networks", difficulty: "Beginner", question: "What is a neuron in neural networks?", options: ["A database", "A basic computational unit", "A type of data", "A training method"], correctAnswer: 1 },
-            ],
-            "Intermediate": [
-                { id: 0, topic: "Neural Networks", difficulty: "Intermediate", question: "What is an activation function?", options: ["A function that turns off the network", "A function that introduces non-linearity", "A function that only works on images", "A function that reduces learning rate"], correctAnswer: 1 },
-                { id: 0, topic: "Neural Networks", difficulty: "Intermediate", question: "What is backpropagation?", options: ["Forward data flow", "Algorithm to calculate gradients for training", "A type of neural network", "Data preprocessing"], correctAnswer: 1 },
-            ],
-            "Advanced": [
-                { id: 0, topic: "Neural Networks", difficulty: "Advanced", question: "What is the vanishing gradient problem?", options: ["Gradients become very small in deep networks", "Gradients become too large", "Network runs out of memory", "Training is too fast"], correctAnswer: 0 },
-            ]
-        },
-        "Algorithms": {
-            "Beginner": [
-                { id: 0, topic: "Algorithms", difficulty: "Beginner", question: "What is an algorithm?", options: ["A programming language", "A step-by-step procedure to solve a problem", "A type of data", "A computer component"], correctAnswer: 1 },
-            ],
-            "Intermediate": [
-                { id: 0, topic: "Algorithms", difficulty: "Intermediate", question: "What does Big O notation measure?", options: ["The exact runtime in seconds", "Memory usage only", "Algorithm efficiency as input grows", "Code readability"], correctAnswer: 2 },
-            ],
-            "Advanced": [
-                { id: 0, topic: "Algorithms", difficulty: "Advanced", question: "What is the time complexity of merge sort?", options: ["O(n)", "O(n log n)", "O(n²)", "O(log n)"], correctAnswer: 1 },
-            ]
-        },
-        "Databases": {
-            "Beginner": [
-                { id: 0, topic: "Databases", difficulty: "Beginner", question: "What is a database?", options: ["A programming language", "An organized collection of data", "A type of algorithm", "A web server"], correctAnswer: 1 },
-            ],
-            "Intermediate": [
-                { id: 0, topic: "Databases", difficulty: "Intermediate", question: "What is database normalization?", options: ["Making database faster", "Organizing data to reduce redundancy", "Encrypting all data", "Backing up the database"], correctAnswer: 1 },
-            ],
-            "Advanced": [
-                { id: 0, topic: "Databases", difficulty: "Advanced", question: "What is ACID in database transactions?", options: ["A type of SQL query", "Atomicity, Consistency, Isolation, Durability", "A database engine", "A backup method"], correctAnswer: 1 },
-            ]
-        }
-    };
-
-    // Dynamic quiz questions state
-    const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
-    const [nextQuizId, setNextQuizId] = useState(1);
-
-    // Hardcoded simulated student responses
-    const simulatedResponses: StudentResponse[] = [
-        { studentId: "S001", studentName: "Alex Johnson", questionId: 1, selectedAnswer: 1, isCorrect: true, timestamp: new Date() },
-        { studentId: "S002", studentName: "Emma Williams", questionId: 1, selectedAnswer: 1, isCorrect: true, timestamp: new Date() },
-        { studentId: "S003", studentName: "Michael Brown", questionId: 1, selectedAnswer: 2, isCorrect: false, timestamp: new Date() },
-        { studentId: "S001", studentName: "Alex Johnson", questionId: 2, selectedAnswer: 2, isCorrect: true, timestamp: new Date() },
-        { studentId: "S002", studentName: "Emma Williams", questionId: 2, selectedAnswer: 0, isCorrect: false, timestamp: new Date() },
-    ];
-
-    // Quiz state
-    const [activeQuizId, setActiveQuizId] = useState<number | null>(null);
-    const [releasedQuizzes, setReleasedQuizzes] = useState<number[]>([]);
+    const [quizzes, setQuizzes] = useState<Quiz[]>([]);
     const [showAnalytics, setShowAnalytics] = useState(false);
 
     // Quiz generation modal state
     const [showGenerateModal, setShowGenerateModal] = useState(false);
-    const [selectedTopic, setSelectedTopic] = useState(availableTopics[0]);
     const [selectedDifficulty, setSelectedDifficulty] = useState<'Beginner' | 'Intermediate' | 'Advanced'>('Intermediate');
-    const [questionCount, setQuestionCount] = useState(3);
+    const [questionCount, setQuestionCount] = useState(5);
     const [isGenerating, setIsGenerating] = useState(false);
+    const [generateError, setGenerateError] = useState('');
 
-    // Generate quiz function
-    const generateQuiz = () => {
+    // Analytics modal state
+    const [analyticsData, setAnalyticsData] = useState<any>(null);
+    const [isAnalyticsLoading, setIsAnalyticsLoading] = useState(false);
+
+    // Edit Quiz modal state
+    const [editingQuiz, setEditingQuiz] = useState<Quiz | null>(null);
+    const [isSavingQuiz, setIsSavingQuiz] = useState(false);
+    const [isRegeneratingQuestion, setIsRegeneratingQuestion] = useState<number | null>(null);
+
+    // Tab state
+    const [activeTab, setActiveTab] = useState<'content' | 'quiz'>('content');
+
+    // ===== LEARNING OUTCOMES API =====
+    const fetchOutcomes = async () => {
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/performance/learning-outcomes`);
+            if (res.ok) {
+                const data = await res.json();
+                setLearningOutcomes(data.outcomes || []);
+            }
+        } catch (e) { console.error('Failed to fetch outcomes:', e); }
+    };
+
+    const uploadOutcomeFile = async () => {
+        if (!outcomeFile) return;
+        setOutcomeUploadStatus({ status: 'uploading', message: 'Processing outcomes...' });
+        try {
+            const formData = new FormData();
+            formData.append('file', outcomeFile);
+            const res = await fetch(`${API_BASE_URL}/api/performance/learning-outcomes/upload`, { method: 'POST', body: formData });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setOutcomeUploadStatus({ status: 'success', message: data.message });
+                setPendingOutcomes(data.data.extracted_outcomes);
+                setPendingOutcomeFileName(data.data.source_filename);
+                setShowPendingModal(true);
+                setOutcomeFile(null);
+            } else {
+                setOutcomeUploadStatus({ status: 'error', message: data.detail || data.message || 'Upload failed' });
+            }
+        } catch { setOutcomeUploadStatus({ status: 'error', message: 'Failed to connect to server' }); }
+    };
+
+    const saveApprovedOutcomes = async () => {
+        if (pendingOutcomes.length === 0) {
+            setOutcomeUploadStatus({ status: 'error', message: 'No outcomes to save.' });
+            return;
+        }
+        setIsSavingOutcomes(true);
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/performance/learning-outcomes/save`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ outcomes: pendingOutcomes, source_filename: pendingOutcomeFileName })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setShowPendingModal(false);
+                setPendingOutcomes([]);
+                setPendingOutcomeFileName('');
+                fetchOutcomes();
+            } else {
+                setOutcomeUploadStatus({ status: 'error', message: data.detail || 'Failed to save outcomes' });
+            }
+        } catch {
+            setOutcomeUploadStatus({ status: 'error', message: 'Failed to connect to server' });
+        } finally {
+            setIsSavingOutcomes(false);
+        }
+    };
+
+    const addPendingOutcome = () => {
+        if (newOutcomeText.trim()) {
+            setPendingOutcomes([...pendingOutcomes, newOutcomeText.trim()]);
+            setNewOutcomeText('');
+        }
+    };
+
+    const updatePendingOutcome = (index: number, val: string) => {
+        const updated = [...pendingOutcomes];
+        updated[index] = val;
+        setPendingOutcomes(updated);
+    };
+
+    const removePendingOutcome = (index: number) => {
+        const updated = pendingOutcomes.filter((_, i) => i !== index);
+        setPendingOutcomes(updated);
+    };
+
+    const deleteOutcome = async (id: string) => {
+        try {
+            await fetch(`${API_BASE_URL}/api/performance/learning-outcomes/${id}`, { method: 'DELETE' });
+            fetchOutcomes();
+        } catch (e) { console.error('Failed to delete outcome:', e); }
+    };
+
+    // ===== QUIZ API =====
+    const fetchQuizzes = async () => {
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/performance/quizzes`);
+            if (res.ok) {
+                const data = await res.json();
+                setQuizzes(data.quizzes || []);
+            }
+        } catch (e) { console.error('Failed to fetch quizzes:', e); }
+    };
+
+    const generateQuiz = async () => {
         setIsGenerating(true);
-
-        // Simulate AI generation delay
-        setTimeout(() => {
-            const topicQuestions = questionBank[selectedTopic]?.[selectedDifficulty] || [];
-            const availableQuestions = [...topicQuestions];
-            const newQuestions: QuizQuestion[] = [];
-
-            for (let i = 0; i < Math.min(questionCount, availableQuestions.length); i++) {
-                const randomIdx = Math.floor(Math.random() * availableQuestions.length);
-                const q = { ...availableQuestions[randomIdx], id: nextQuizId + i };
-                newQuestions.push(q);
-                availableQuestions.splice(randomIdx, 1);
+        setGenerateError('');
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/performance/quiz/generate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ num_questions: questionCount, difficulty: selectedDifficulty }),
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                setShowGenerateModal(false);
+                fetchQuizzes();
+            } else {
+                setGenerateError(data.detail || 'Quiz generation failed');
             }
-
-            // If we need more questions, generate placeholder ones
-            while (newQuestions.length < questionCount) {
-                newQuestions.push({
-                    id: nextQuizId + newQuestions.length,
-                    topic: selectedTopic,
-                    difficulty: selectedDifficulty,
-                    question: `${selectedTopic} question ${newQuestions.length + 1} (${selectedDifficulty})`,
-                    options: ["Option A", "Option B", "Option C", "Option D"],
-                    correctAnswer: Math.floor(Math.random() * 4)
-                });
-            }
-
-            setQuizQuestions([...quizQuestions, ...newQuestions]);
-            setNextQuizId(nextQuizId + newQuestions.length);
-            setIsGenerating(false);
-            setShowGenerateModal(false);
-        }, 1500);
+        } catch {
+            setGenerateError('Failed to connect to server. Is the backend running?');
+        } finally { setIsGenerating(false); }
     };
 
-    // Remove quiz function
-    const removeQuiz = (questionId: number) => {
-        setQuizQuestions(quizQuestions.filter(q => q.id !== questionId));
-        setReleasedQuizzes(releasedQuizzes.filter(id => id !== questionId));
+    const removeQuiz = async (quizId: string) => {
+        try {
+            await fetch(`${API_BASE_URL}/api/performance/quiz/${quizId}`, { method: 'DELETE' });
+            fetchQuizzes();
+        } catch (e) { console.error('Failed to delete quiz:', e); }
     };
 
-    // Calculate analytics
-    const getTopicAnalytics = () => {
-        const topicStats: Record<string, { correct: number; total: number }> = {};
+    const releaseQuiz = async (quizId: string) => {
+        try {
+            await fetch(`${API_BASE_URL}/api/performance/quiz/${quizId}/release`, { method: 'PUT' });
+            fetchQuizzes();
+        } catch (e) { console.error('Failed to release quiz:', e); }
+    };
 
-        quizQuestions.forEach(q => {
-            if (!topicStats[q.topic]) {
-                topicStats[q.topic] = { correct: 0, total: 0 };
+    // ===== EDIT QUIZ FUNCTIONS =====
+    const openEditQuiz = (quiz: Quiz) => {
+        // Create a deep copy to allow editing without mutating the original until saved
+        setEditingQuiz(JSON.parse(JSON.stringify(quiz)));
+    };
+
+    const closeEditQuiz = () => {
+        setEditingQuiz(null);
+    };
+
+    const handleEditQuestionText = (qIndex: number, text: string) => {
+        if (!editingQuiz) return;
+        const newQuiz = { ...editingQuiz };
+        newQuiz.questions[qIndex].question = text;
+        setEditingQuiz(newQuiz);
+    };
+
+    const handleEditOptionText = (qIndex: number, optIndex: number, text: string) => {
+        if (!editingQuiz) return;
+        const newQuiz = { ...editingQuiz };
+        newQuiz.questions[qIndex].options[optIndex] = text;
+        setEditingQuiz(newQuiz);
+    };
+
+    const handleSetCorrectAnswer = (qIndex: number, optIndex: number) => {
+        if (!editingQuiz) return;
+        const newQuiz = { ...editingQuiz };
+        newQuiz.questions[qIndex].correctAnswer = optIndex;
+        setEditingQuiz(newQuiz);
+    };
+
+    const saveEditedQuiz = async () => {
+        if (!editingQuiz) return;
+        setIsSavingQuiz(true);
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/performance/quiz/${editingQuiz.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ questions: editingQuiz.questions })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                // Update local list
+                setQuizzes(quizzes.map(q => q.id === editingQuiz.id ? data.quiz : q));
+                setEditingQuiz(null);
+            } else {
+                alert(`Failed to save quiz: ${data.detail || 'Unknown error'}`);
             }
-        });
+        } catch (e) {
+            console.error(e);
+            alert('Failed to connect to server to save quiz.');
+        } finally {
+            setIsSavingQuiz(false);
+        }
+    };
 
-        simulatedResponses.forEach(response => {
-            const question = quizQuestions.find(q => q.id === response.questionId);
-            if (question) {
-                topicStats[question.topic].total++;
-                if (response.isCorrect) {
-                    topicStats[question.topic].correct++;
-                }
+    const regenerateQuestion = async (qIndex: number, questionId: number) => {
+        if (!editingQuiz) return;
+        setIsRegeneratingQuestion(questionId);
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/performance/quiz/regenerate-question`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ question_id: questionId })
+            });
+            const data = await res.json();
+            if (res.ok && data.success) {
+                const newQuiz = { ...editingQuiz };
+                newQuiz.questions[qIndex] = data.question;
+                setEditingQuiz(newQuiz);
+            } else {
+                alert(`Failed to regenerate question: ${data.detail || 'Unknown error'}`);
             }
-        });
-
-        return Object.entries(topicStats).map(([topic, stats]) => ({
-            topic,
-            percentage: stats.total > 0 ? Math.round((stats.correct / stats.total) * 100) : 0,
-            correct: stats.correct,
-            total: stats.total
-        }));
+        } catch (e) {
+            console.error(e);
+            alert('Failed to connect to server to regenerate question.');
+        } finally {
+            setIsRegeneratingQuestion(null);
+        }
     };
 
-    const getOverallStats = () => {
-        const totalResponses = simulatedResponses.length;
-        const correctResponses = simulatedResponses.filter(r => r.isCorrect).length;
-        const uniqueStudents = new Set(simulatedResponses.map(r => r.studentId)).size;
-
-        return {
-            totalResponses,
-            correctResponses,
-            accuracy: totalResponses > 0 ? Math.round((correctResponses / totalResponses) * 100) : 0,
-            uniqueStudents,
-            questionsAnswered: new Set(simulatedResponses.map(r => r.questionId)).size
-        };
-    };
-
-    const releaseQuiz = (questionId: number) => {
-        if (!releasedQuizzes.includes(questionId)) {
-            setReleasedQuizzes([...releasedQuizzes, questionId]);
-            setActiveQuizId(questionId);
+    const fetchAnalytics = async (quizId: string) => {
+        setIsAnalyticsLoading(true);
+        setShowAnalytics(true);
+        try {
+            const res = await fetch(`${API_BASE_URL}/api/performance/quiz/${quizId}/analytics`);
+            if (res.ok) {
+                const data = await res.json();
+                setAnalyticsData(data.analytics);
+            } else {
+                setAnalyticsData(null);
+            }
+        } catch (e) {
+            console.error('Failed to fetch analytics:', e);
+            setAnalyticsData(null);
+        } finally {
+            setIsAnalyticsLoading(false);
         }
     };
 
@@ -294,7 +375,7 @@ export default function StudentPerformanceSection() {
             const response = await fetch(`${API_BASE_URL}/api/performance/transcript`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ transcript: text, use_llm_filter: false }), // Use regex for speed
+                body: JSON.stringify({ transcript: text, use_llm_filter: false, skip_filter: true }),
             });
 
             const data = await response.json();
@@ -310,54 +391,27 @@ export default function StudentPerformanceSection() {
         }
     }, []);
 
-    // Initialize speech recognition
+    // Local Whisper STT hook 
+    const {
+        isRecording,
+        transcript,
+        displayedTranscript,
+        interimText: interimTranscript,
+        error: sttError,
+        isTranscribing,
+        start: startRecording,
+        stop: stopRecording,
+        clear: clearSTT,
+    } = useLocalSTT((finalText: string) => {
+        // Append newly transcribed text from Whisper
+        pendingTranscriptRef.current += finalText + " ";
+    });
+
+    // Fetch stats on mount
     useEffect(() => {
-        if (typeof window !== 'undefined') {
-            const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-            if (SpeechRecognition) {
-                const recognition = new SpeechRecognition();
-                recognition.continuous = true;
-                recognition.interimResults = true;
-                recognition.lang = 'en-US';
-
-                recognition.onresult = (event: any) => {
-                    let interim = '';
-                    let final = '';
-                    for (let i = event.resultIndex; i < event.results.length; i++) {
-                        const result = event.results[i];
-                        if (result.isFinal) {
-                            final += result[0].transcript + ' ';
-                        } else {
-                            interim += result[0].transcript;
-                        }
-                    }
-                    if (final) {
-                        setTranscript(prev => prev + final);
-                        pendingTranscriptRef.current += final;
-                    }
-                    setInterimTranscript(interim);
-                };
-
-                recognition.onerror = (event: any) => {
-                    console.error('Speech recognition error:', event.error);
-                    setIsRecording(false);
-                };
-
-                recognition.onend = () => {
-                    // Only restart if still recording
-                    if (isRecording && recognitionRef.current) {
-                        try {
-                            recognitionRef.current.start();
-                        } catch (e) {
-                            console.error('Failed to restart recognition:', e);
-                        }
-                    }
-                };
-
-                recognitionRef.current = recognition;
-            }
-        }
         fetchStats();
+        fetchOutcomes();
+        fetchQuizzes();
     }, []);
 
     // Auto-submit timer effect
@@ -452,15 +506,9 @@ export default function StudentPerformanceSection() {
     };
 
     // Transcription handlers
-    const toggleRecording = () => {
-        if (!recognitionRef.current) {
-            alert('Speech recognition is not supported in this browser. Please use Chrome or Edge.');
-            return;
-        }
-
+    const toggleRecording = async () => {
         if (isRecording) {
-            recognitionRef.current.stop();
-            setIsRecording(false);
+            stopRecording();
 
             // Submit any remaining pending transcript
             if (autoSubmitEnabled && pendingTranscriptRef.current.trim().length >= 20) {
@@ -468,18 +516,15 @@ export default function StudentPerformanceSection() {
                 pendingTranscriptRef.current = '';
             }
         } else {
-            setTranscript('');
-            setInterimTranscript('');
+            clearSTT();
             setAutoSubmitCount(0);
             pendingTranscriptRef.current = '';
-            recognitionRef.current.start();
-            setIsRecording(true);
+            await startRecording();
         }
     };
 
     const clearTranscript = () => {
-        setTranscript('');
-        setInterimTranscript('');
+        clearSTT();
         setTranscriptStatus({ status: 'idle', message: '' });
         setAutoSubmitCount(0);
         pendingTranscriptRef.current = '';
@@ -493,14 +538,14 @@ export default function StudentPerformanceSection() {
             const response = await fetch(`${API_BASE_URL}/api/performance/transcript`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ transcript: transcript, use_llm_filter: true }),
+                body: JSON.stringify({ transcript: transcript, use_llm_filter: false, skip_filter: true }),
             });
 
             const data = await response.json();
 
             if (response.ok && data.success) {
                 setTranscriptStatus({ status: 'success', message: `Stored ${data.data?.chunks_stored || 1} content chunks` });
-                setTranscript('');
+                clearSTT();
                 pendingTranscriptRef.current = '';
                 fetchStats();
             } else {
@@ -550,507 +595,487 @@ export default function StudentPerformanceSection() {
 
     return (
         <div className="flex flex-col h-full bg-gray-900 text-white overflow-hidden">
-            <header className="h-16 bg-gray-800/50 backdrop-blur border-b border-gray-700 flex items-center justify-between px-8 sticky top-0 z-10 shrink-0">
-                <h2 className="text-lg font-semibold text-gray-200">
-                    Student Performance
-                </h2>
-                <div className="flex items-center gap-4">
-                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span className="text-sm text-emerald-400">System Online</span>
+            <header className="bg-gray-800/50 backdrop-blur border-b border-gray-700 sticky top-0 z-10 shrink-0">
+                <div className="h-16 flex items-center justify-between px-8">
+                    <h2 className="text-lg font-semibold text-gray-200">
+                        Student Performance
+                    </h2>
+                    <div className="flex items-center gap-4">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        <span className="text-sm text-emerald-400">System Online</span>
+                    </div>
+                </div>
+
+                {/* Tab Navigation */}
+                <div className="flex px-8 gap-6 border-t border-gray-700/50">
+                    <button
+                        onClick={() => setActiveTab('content')}
+                        className={`py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'content'
+                            ? 'border-blue-500 text-blue-400'
+                            : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600'
+                            }`}
+                    >
+                        <FileText size={16} />
+                        Lecture Content
+                    </button>
+                    <button
+                        onClick={() => setActiveTab('quiz')}
+                        className={`py-3 text-sm font-medium border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'quiz'
+                            ? 'border-blue-500 text-blue-400'
+                            : 'border-transparent text-gray-400 hover:text-gray-200 hover:border-gray-600'
+                            }`}
+                    >
+                        <Target size={16} />
+                        Quiz & Outcomes
+                    </button>
                 </div>
             </header>
+
             <main className="p-8 flex-1 overflow-auto">
                 <div className="space-y-6">
-                    {/* Info Banner */}
-                    <div className="bg-gradient-to-r from-blue-600/20 to-purple-600/20 border border-blue-500/30 rounded-xl p-4 flex items-center gap-4">
-                        <div className="p-3 bg-blue-500/20 rounded-lg">
-                            <GraduationCap size={24} className="text-blue-400" />
-                        </div>
-                        <div className="flex-1">
-                            <h3 className="font-semibold text-white">Lecture Content Manager</h3>
-                            <p className="text-sm text-gray-400">Upload slides and record lectures for AI-powered student summaries and Q&A</p>
-                        </div>
-                        {contentStats && (
-                            <div className="flex items-center gap-2 bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-700">
-                                <FileText size={14} className="text-blue-400" />
-                                <span className="text-sm text-white">{contentStats.document_count} chunks</span>
-                            </div>
-                        )}
-                    </div>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                        {/* File Upload Section */}
-                        <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
-                            <div className="p-4 border-b border-gray-700 bg-gray-900/50">
-                                <h3 className="font-semibold flex items-center gap-2">
-                                    <Upload size={18} className="text-blue-400" />
-                                    Upload Lecture Slides
-                                </h3>
-                                <p className="text-xs text-gray-500 mt-1">PDF or TXT files accepted</p>
-                            </div>
-                            <div className="p-6">
-                                <div
-                                    className={`border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer ${isDragging ? 'border-blue-500 bg-blue-500/10' : 'border-gray-600 hover:border-blue-500/50 hover:bg-gray-700/30'}`}
-                                    onDrop={handleDrop}
-                                    onDragOver={handleDragOver}
-                                    onDragLeave={handleDragLeave}
-                                    onClick={() => fileInputRef.current?.click()}
-                                >
-                                    <input ref={fileInputRef} type="file" accept=".pdf,.txt" className="hidden" onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])} />
-                                    <Upload size={32} className="mx-auto text-gray-500 mb-3" />
-                                    <p className="text-white font-medium">{selectedFile ? selectedFile.name : 'Drop your file here'}</p>
-                                    <p className="text-sm text-gray-500 mt-1">{selectedFile ? `${(selectedFile.size / 1024).toFixed(1)} KB` : 'or click to browse'}</p>
+                    {/* TAB 1: LECTURE CONTENT */}
+                    {activeTab === 'content' && (
+                        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                            {/* Info Banner */}
+                            <div className="bg-gradient-to-r from-blue-600/20 to-purple-600/20 border border-blue-500/30 rounded-xl p-4 flex items-center gap-4">
+                                <div className="p-3 bg-blue-500/20 rounded-lg">
+                                    <GraduationCap size={24} className="text-blue-400" />
                                 </div>
-
-                                <div className="mt-4 space-y-3">
-                                    <button
-                                        onClick={uploadFile}
-                                        disabled={!selectedFile || uploadStatus.status === 'uploading'}
-                                        className={`w-full py-2.5 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${selectedFile && uploadStatus.status !== 'uploading' ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`}
-                                    >
-                                        {uploadStatus.status === 'uploading' ? <><Loader2 size={16} className="animate-spin" />Processing...</> : <><Upload size={16} />Upload & Process</>}
-                                    </button>
-
-                                    {uploadStatus.message && (
-                                        <div className={`flex items-start gap-2 p-3 rounded-lg text-sm ${uploadStatus.status === 'success' ? 'bg-emerald-500/10 text-emerald-400' : uploadStatus.status === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
-                                            {uploadStatus.status === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
-                                            {uploadStatus.message}
-                                        </div>
-                                    )}
+                                <div className="flex-1">
+                                    <h3 className="font-semibold text-white">Lecture Content Manager</h3>
+                                    <p className="text-sm text-gray-400">Upload slides and record lectures for AI-powered student summaries and Q&A</p>
                                 </div>
+                                {contentStats && (
+                                    <div className="flex items-center gap-2 bg-gray-800 px-3 py-1.5 rounded-lg border border-gray-700">
+                                        <FileText size={14} className="text-blue-400" />
+                                        <span className="text-sm text-white">{contentStats.document_count} chunks</span>
+                                    </div>
+                                )}
                             </div>
-                        </div>
 
-                        {/* Live Transcription Section with Auto-Submit */}
-                        <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
-                            <div className="p-4 border-b border-gray-700 bg-gray-900/50">
-                                <div className="flex items-center justify-between">
-                                    <div>
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                {/* File Upload Section */}
+                                <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+                                    <div className="p-4 border-b border-gray-700 bg-gray-900/50">
                                         <h3 className="font-semibold flex items-center gap-2">
-                                            <Mic size={18} className="text-purple-400" />
-                                            Live Transcription
+                                            <Upload size={18} className="text-blue-400" />
+                                            Upload Lecture Slides
                                         </h3>
-                                        <p className="text-xs text-gray-500 mt-1">Auto-saves every 5 seconds while recording</p>
+                                        <p className="text-xs text-gray-500 mt-1">PDF or TXT files accepted</p>
                                     </div>
-                                    {/* Auto-submit toggle */}
-                                    <button
-                                        onClick={() => setAutoSubmitEnabled(!autoSubmitEnabled)}
-                                        className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${autoSubmitEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-gray-700 text-gray-400'}`}
-                                    >
-                                        <Zap size={14} />
-                                        Auto-Save {autoSubmitEnabled ? 'ON' : 'OFF'}
-                                    </button>
-                                </div>
-                            </div>
-                            <div className="p-6">
-                                <div className="flex justify-center mb-4">
-                                    <button
-                                        onClick={toggleRecording}
-                                        className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${isRecording ? 'bg-red-500 animate-pulse shadow-lg shadow-red-500/30' : 'bg-blue-600 hover:bg-blue-700'}`}
-                                    >
-                                        {isRecording ? <MicOff size={28} className="text-white" /> : <Mic size={28} className="text-white" />}
-                                    </button>
-                                </div>
-
-                                {/* Recording status */}
-                                <div className="text-center mb-4">
-                                    <p className="text-sm text-gray-400">
-                                        {isRecording ? 'Recording... Click to stop' : 'Click to start recording'}
-                                    </p>
-                                    {isRecording && autoSubmitEnabled && (
-                                        <div className="flex items-center justify-center gap-2 mt-2 text-xs text-emerald-400">
-                                            <Clock size={12} />
-                                            {autoSubmitCount > 0 ? `${autoSubmitCount} chunks auto-saved` : 'Will auto-save every 5s'}
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div className="bg-gray-900 rounded-lg p-4 min-h-[120px] max-h-[160px] overflow-y-auto border border-gray-700">
-                                    {transcript || interimTranscript ? (
-                                        <p className="text-gray-200 leading-relaxed text-sm">
-                                            {transcript}
-                                            <span className="text-blue-400 opacity-70">{interimTranscript}</span>
-                                        </p>
-                                    ) : (
-                                        <p className="text-gray-600 text-center text-sm">Transcript will appear here...</p>
-                                    )}
-                                </div>
-
-                                <div className="mt-4 space-y-3">
-                                    <div className="flex gap-2">
-                                        <button
-                                            onClick={submitTranscript}
-                                            disabled={!transcript.trim() || transcriptStatus.status === 'processing'}
-                                            className={`flex-1 py-2.5 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${transcript.trim() && transcriptStatus.status !== 'processing' ? 'bg-purple-600 text-white hover:bg-purple-700' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`}
-                                        >
-                                            {transcriptStatus.status === 'processing' ? <><Loader2 size={16} className="animate-spin" />Processing...</> : <><Send size={16} />Submit All</>}
-                                        </button>
-                                        <button
-                                            onClick={clearTranscript}
-                                            disabled={!transcript.trim() && !interimTranscript}
-                                            className={`py-2.5 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${transcript.trim() || interimTranscript ? 'bg-gray-600 text-white hover:bg-gray-500' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`}
-                                        >
-                                            <Trash2 size={16} />
-                                        </button>
-                                    </div>
-
-                                    {transcriptStatus.message && (
-                                        <div className={`flex items-start gap-2 p-3 rounded-lg text-sm ${transcriptStatus.status === 'success' ? 'bg-emerald-500/10 text-emerald-400' : transcriptStatus.status === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
-                                            {transcriptStatus.status === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
-                                            {transcriptStatus.message}
-                                        </div>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Demo Paste Section */}
-                    <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
-                        <div className="p-4 border-b border-gray-700 bg-gray-900/50">
-                            <h3 className="font-semibold flex items-center gap-2">
-                                <ClipboardPaste size={18} className="text-orange-400" />
-                                Paste Transcript (Demo Mode)
-                            </h3>
-                            <p className="text-xs text-gray-500 mt-1">Paste lecture transcript text directly for testing without recording</p>
-                        </div>
-                        <div className="p-6">
-                            <textarea
-                                value={pasteText}
-                                onChange={(e) => setPasteText(e.target.value)}
-                                placeholder="Paste your lecture transcript here for demo purposes...&#10;&#10;Example: Today we'll be discussing machine learning fundamentals. Machine learning is a subset of artificial intelligence that enables computers to learn from data without being explicitly programmed..."
-                                className="w-full h-32 bg-gray-900 border border-gray-700 rounded-lg p-4 text-gray-200 text-sm resize-none focus:outline-none focus:border-orange-500/50 placeholder-gray-600"
-                            />
-
-                            <div className="mt-4 flex gap-3">
-                                <button
-                                    onClick={submitPasteText}
-                                    disabled={!pasteText.trim() || pasteStatus.status === 'processing'}
-                                    className={`flex-1 py-2.5 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${pasteText.trim() && pasteStatus.status !== 'processing' ? 'bg-orange-600 text-white hover:bg-orange-700' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`}
-                                >
-                                    {pasteStatus.status === 'processing' ? <><Loader2 size={16} className="animate-spin" />Processing...</> : <><Send size={16} />Submit Pasted Text</>}
-                                </button>
-                                <button
-                                    onClick={() => { setPasteText(''); setPasteStatus({ status: 'idle', message: '' }); }}
-                                    disabled={!pasteText.trim()}
-                                    className={`py-2.5 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${pasteText.trim() ? 'bg-gray-600 text-white hover:bg-gray-500' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`}
-                                >
-                                    <Trash2 size={16} />
-                                    Clear
-                                </button>
-                            </div>
-
-                            {pasteStatus.message && (
-                                <div className={`mt-3 flex items-start gap-2 p-3 rounded-lg text-sm ${pasteStatus.status === 'success' ? 'bg-emerald-500/10 text-emerald-400' : pasteStatus.status === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
-                                    {pasteStatus.status === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
-                                    {pasteStatus.message}
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* How it works */}
-                    <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
-                        <h3 className="font-semibold text-white mb-4">How it works</h3>
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                            <div className="flex gap-3">
-                                <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 font-bold shrink-0">1</div>
-                                <div>
-                                    <h4 className="font-medium text-white text-sm">Upload Slides</h4>
-                                    <p className="text-xs text-gray-500">Text is extracted and stored</p>
-                                </div>
-                            </div>
-                            <div className="flex gap-3">
-                                <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-400 font-bold shrink-0">2</div>
-                                <div>
-                                    <h4 className="font-medium text-white text-sm">Record Lecture</h4>
-                                    <p className="text-xs text-gray-500">Speech auto-saves every 5s</p>
-                                </div>
-                            </div>
-                            <div className="flex gap-3">
-                                <div className="w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center text-orange-400 font-bold shrink-0">3</div>
-                                <div>
-                                    <h4 className="font-medium text-white text-sm">Or Paste Text</h4>
-                                    <p className="text-xs text-gray-500">For demos without mic</p>
-                                </div>
-                            </div>
-                            <div className="flex gap-3">
-                                <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold shrink-0">4</div>
-                                <div>
-                                    <h4 className="font-medium text-white text-sm">Student Access</h4>
-                                    <p className="text-xs text-gray-500">AI summaries & Q&A ready</p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* ===== CLASS QUIZ SECTION ===== */}
-                    <div className="bg-gray-800 border border-gray-700 rounded-xl overflow-hidden">
-                        <div className="p-4 border-b border-gray-700 bg-gray-900/50">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-3">
-                                    <div className="p-2.5 bg-blue-500/20 rounded-xl">
-                                        <Brain size={22} className="text-blue-400" />
-                                    </div>
-                                    <div>
-                                        <h3 className="font-bold text-white text-lg flex items-center gap-2">
-                                            AI-Generated Quiz
-                                            <span className="px-2 py-0.5 bg-gray-700 text-gray-300 text-xs font-medium rounded-full border border-gray-600">
-                                                <Sparkles size={10} className="inline mr-1" />
-                                                From Lecture Content
-                                            </span>
-                                        </h3>
-                                        <p className="text-sm text-gray-400">Questions auto-generated based on your uploaded slides and live transcription</p>
-                                    </div>
-                                </div>
-                                <div className="flex items-center gap-3">
-                                    <button
-                                        onClick={() => setShowGenerateModal(true)}
-                                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-all"
-                                    >
-                                        <Wand2 size={18} />
-                                        Generate Quiz
-                                    </button>
-                                    <button
-                                        onClick={() => setShowAnalytics(!showAnalytics)}
-                                        className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${showAnalytics
-                                            ? 'bg-blue-600 text-white'
-                                            : 'bg-gray-700 text-gray-300 hover:bg-gray-600'}`}
-                                    >
-                                        <BarChart3 size={18} />
-                                        {showAnalytics ? 'Hide Analytics' : 'View Analytics'}
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="p-6 space-y-6">
-                            {/* Quiz Questions Grid */}
-                            {quizQuestions.length === 0 ? (
-                                <div className="text-center py-12">
-                                    <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
-                                        <HelpCircle size={32} className="text-blue-400" />
-                                    </div>
-                                    <h4 className="text-lg font-semibold text-white mb-2">No Quizzes Yet</h4>
-                                    <p className="text-gray-400 mb-6">Generate AI-powered quizzes based on your lecture content</p>
-                                    <button
-                                        onClick={() => setShowGenerateModal(true)}
-                                        className="inline-flex items-center gap-2 px-6 py-3 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-all"
-                                    >
-                                        <Wand2 size={18} />
-                                        Generate Your First Quiz
-                                    </button>
-                                </div>
-                            ) : (
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                                    {quizQuestions.map((question) => (
+                                    <div className="p-6">
                                         <div
-                                            key={question.id}
-                                            className={`bg-gray-800/80 rounded-xl border transition-all ${releasedQuizzes.includes(question.id)
-                                                ? 'border-emerald-500/50 shadow-lg shadow-emerald-500/10'
-                                                : 'border-gray-700 hover:border-indigo-500/50'
-                                                }`}
+                                            className={`border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer ${isDragging ? 'border-blue-500 bg-blue-500/10' : 'border-gray-600 hover:border-blue-500/50 hover:bg-gray-700/30'}`}
+                                            onDrop={handleDrop}
+                                            onDragOver={handleDragOver}
+                                            onDragLeave={handleDragLeave}
+                                            onClick={() => fileInputRef.current?.click()}
                                         >
-                                            <div className="p-4">
-                                                <div className="flex items-start justify-between mb-3">
-                                                    <div className="flex items-center gap-2 flex-wrap">
-                                                        <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${question.topic === 'Machine Learning' ? 'bg-blue-500/20 text-blue-400' :
-                                                            question.topic === 'Data Structures' ? 'bg-emerald-500/20 text-emerald-400' :
-                                                                question.topic === 'Neural Networks' ? 'bg-purple-500/20 text-purple-400' :
-                                                                    question.topic === 'Algorithms' ? 'bg-orange-500/20 text-orange-400' :
-                                                                        'bg-pink-500/20 text-pink-400'
-                                                            }`}>
-                                                            {question.topic}
-                                                        </span>
-                                                        <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${question.difficulty === 'Beginner' ? 'bg-green-500/20 text-green-400' :
-                                                            question.difficulty === 'Intermediate' ? 'bg-yellow-500/20 text-yellow-400' :
-                                                                'bg-red-500/20 text-red-400'
-                                                            }`}>
-                                                            {question.difficulty}
-                                                        </span>
-                                                    </div>
-                                                    <div className="flex items-center gap-2">
-                                                        {releasedQuizzes.includes(question.id) && (
-                                                            <span className="flex items-center gap-1 text-xs text-emerald-400">
-                                                                <CheckCheck size={14} />
-                                                                Released
-                                                            </span>
-                                                        )}
-                                                        <button
-                                                            onClick={() => removeQuiz(question.id)}
-                                                            className="p-1 hover:bg-red-500/20 rounded transition-colors group"
-                                                            title="Remove quiz"
-                                                        >
-                                                            <X size={14} className="text-gray-500 group-hover:text-red-400" />
-                                                        </button>
-                                                    </div>
+                                            <input ref={fileInputRef} type="file" accept=".pdf,.txt" className="hidden" onChange={(e) => e.target.files?.[0] && handleFileSelect(e.target.files[0])} />
+                                            <Upload size={32} className="mx-auto text-gray-500 mb-3" />
+                                            <p className="text-white font-medium">{selectedFile ? selectedFile.name : 'Drop your file here'}</p>
+                                            <p className="text-sm text-gray-500 mt-1">{selectedFile ? `${(selectedFile.size / 1024).toFixed(1)} KB` : 'or click to browse'}</p>
+                                        </div>
+
+                                        <div className="mt-4 space-y-3">
+                                            <button
+                                                onClick={uploadFile}
+                                                disabled={!selectedFile || uploadStatus.status === 'uploading'}
+                                                className={`w-full py-2.5 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${selectedFile && uploadStatus.status !== 'uploading' ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`}
+                                            >
+                                                {uploadStatus.status === 'uploading' ? <><Loader2 size={16} className="animate-spin" />Processing...</> : <><Upload size={16} />Upload & Process</>}
+                                            </button>
+
+                                            {uploadStatus.message && (
+                                                <div className={`flex items-start gap-2 p-3 rounded-lg text-sm ${uploadStatus.status === 'success' ? 'bg-emerald-500/10 text-emerald-400' : uploadStatus.status === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                                                    {uploadStatus.status === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+                                                    {uploadStatus.message}
                                                 </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
 
-                                                <h4 className="font-medium text-white mb-3 leading-snug">
-                                                    {question.question}
-                                                </h4>
+                                {/* Live Transcription Section with Auto-Submit */}
+                                <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+                                    <div className="p-4 border-b border-gray-700 bg-gray-900/50">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <h3 className="font-semibold flex items-center gap-2">
+                                                    <Mic size={18} className="text-purple-400" />
+                                                    Live Transcription
+                                                </h3>
+                                                <p className="text-xs text-gray-500 mt-1">Auto-saves every 5 seconds while recording</p>
+                                            </div>
+                                            {/* Auto-submit toggle */}
+                                            <button
+                                                onClick={() => setAutoSubmitEnabled(!autoSubmitEnabled)}
+                                                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${autoSubmitEnabled ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-gray-700 text-gray-400'}`}
+                                            >
+                                                <Zap size={14} />
+                                                Auto-Save {autoSubmitEnabled ? 'ON' : 'OFF'}
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="p-6">
+                                        <div className="flex justify-center mb-4">
+                                            <button
+                                                onClick={toggleRecording}
+                                                className={`w-16 h-16 rounded-full flex items-center justify-center transition-all ${isRecording ? 'bg-red-500 animate-pulse shadow-lg shadow-red-500/30' : 'bg-blue-600 hover:bg-blue-700'}`}
+                                            >
+                                                {isRecording ? <MicOff size={28} className="text-white" /> : <Mic size={28} className="text-white" />}
+                                            </button>
+                                        </div>
 
-                                                <div className="space-y-1.5 mb-4">
-                                                    {question.options.map((option, idx) => (
-                                                        <div
-                                                            key={idx}
-                                                            className={`text-xs px-3 py-1.5 rounded-lg ${idx === question.correctAnswer
-                                                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
-                                                                : 'bg-gray-700/50 text-gray-400'
-                                                                }`}
-                                                        >
-                                                            {String.fromCharCode(65 + idx)}. {option}
-                                                        </div>
-                                                    ))}
+                                        {/* Recording status */}
+                                        <div className="text-center mb-4">
+                                            <p className="text-sm text-gray-400">
+                                                {isRecording ? 'Recording... Click to stop' : 'Click to start recording'}
+                                            </p>
+                                            {isRecording && autoSubmitEnabled && (
+                                                <div className="flex items-center justify-center gap-2 mt-2 text-xs text-emerald-400">
+                                                    <Clock size={12} />
+                                                    {autoSubmitCount > 0 ? `${autoSubmitCount} chunks auto-saved` : 'Will auto-save every 5s'}
                                                 </div>
+                                            )}
+                                        </div>
 
+                                        <div className="bg-gray-900 rounded-lg p-4 min-h-[120px] max-h-[160px] overflow-y-auto border border-gray-700">
+                                            {displayedTranscript || interimTranscript ? (
+                                                <p className="text-gray-200 leading-relaxed text-sm">
+                                                    {displayedTranscript}
+                                                    <span className="text-blue-400 opacity-70">{interimTranscript}</span>
+                                                    {isTranscribing && <span className="inline-block w-2 h-4 bg-blue-400 ml-1 animate-pulse" />}
+                                                </p>
+                                            ) : (
+                                                <p className="text-gray-600 text-center text-sm">Transcript will appear here...</p>
+                                            )}
+                                        </div>
+
+                                        <div className="mt-4 space-y-3">
+                                            <div className="flex gap-2">
                                                 <button
-                                                    onClick={() => releaseQuiz(question.id)}
-                                                    disabled={releasedQuizzes.includes(question.id)}
-                                                    className={`w-full py-2 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${releasedQuizzes.includes(question.id)
-                                                        ? 'bg-gray-700 text-gray-500 cursor-not-allowed'
-                                                        : 'bg-indigo-600 text-white hover:bg-indigo-700'
-                                                        }`}
+                                                    onClick={submitTranscript}
+                                                    disabled={!transcript.trim() || transcriptStatus.status === 'processing'}
+                                                    className={`flex-1 py-2.5 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${transcript.trim() && transcriptStatus.status !== 'processing' ? 'bg-purple-600 text-white hover:bg-purple-700' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`}
                                                 >
-                                                    {releasedQuizzes.includes(question.id) ? (
-                                                        <><CheckCircle2 size={16} />Released to Class</>
-                                                    ) : (
-                                                        <><PlayCircle size={16} />Release to Class</>
-                                                    )}
+                                                    {transcriptStatus.status === 'processing' ? <><Loader2 size={16} className="animate-spin" />Processing...</> : <><Send size={16} />Submit All</>}
+                                                </button>
+                                                <button
+                                                    onClick={clearTranscript}
+                                                    disabled={!transcript.trim() && !interimTranscript}
+                                                    className={`py-2.5 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${transcript.trim() || interimTranscript ? 'bg-gray-600 text-white hover:bg-gray-500' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`}
+                                                >
+                                                    <Trash2 size={16} />
                                                 </button>
                                             </div>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
 
-                            {/* Analytics Dashboard (Collapsible) */}
-                            {showAnalytics && (
-                                <div className="mt-6 space-y-6 animate-in fade-in duration-300">
-                                    {/* Stats Cards */}
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                        <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
-                                            <div className="flex items-center gap-3">
-                                                <div className="p-2.5 bg-blue-500/20 rounded-lg">
-                                                    <Users size={20} className="text-blue-400" />
+                                            {transcriptStatus.message && (
+                                                <div className={`flex items-start gap-2 p-3 rounded-lg text-sm ${transcriptStatus.status === 'success' ? 'bg-emerald-500/10 text-emerald-400' : transcriptStatus.status === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                                                    {transcriptStatus.status === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+                                                    {transcriptStatus.message}
                                                 </div>
-                                                <div>
-                                                    <p className="text-2xl font-bold text-white">{getOverallStats().uniqueStudents}</p>
-                                                    <p className="text-xs text-gray-400">Students Participated</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
-                                            <div className="flex items-center gap-3">
-                                                <div className="p-2.5 bg-emerald-500/20 rounded-lg">
-                                                    <Target size={20} className="text-emerald-400" />
-                                                </div>
-                                                <div>
-                                                    <p className="text-2xl font-bold text-white">{getOverallStats().accuracy}%</p>
-                                                    <p className="text-xs text-gray-400">Overall Accuracy</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
-                                            <div className="flex items-center gap-3">
-                                                <div className="p-2.5 bg-purple-500/20 rounded-lg">
-                                                    <HelpCircle size={20} className="text-purple-400" />
-                                                </div>
-                                                <div>
-                                                    <p className="text-2xl font-bold text-white">{getOverallStats().questionsAnswered}</p>
-                                                    <p className="text-xs text-gray-400">Questions Answered</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="bg-gray-800 rounded-xl p-4 border border-gray-700">
-                                            <div className="flex items-center gap-3">
-                                                <div className="p-2.5 bg-orange-500/20 rounded-lg">
-                                                    <TrendingUp size={20} className="text-orange-400" />
-                                                </div>
-                                                <div>
-                                                    <p className="text-2xl font-bold text-white">{getOverallStats().totalResponses}</p>
-                                                    <p className="text-xs text-gray-400">Total Responses</p>
-                                                </div>
-                                            </div>
+                                            )}
                                         </div>
                                     </div>
+                                </div>
+                            </div>
 
-                                    {/* Topic Understanding Chart */}
-                                    <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
-                                        <h4 className="font-semibold text-white mb-4 flex items-center gap-2">
-                                            <BarChart3 size={18} className="text-indigo-400" />
-                                            Topic Understanding Breakdown
-                                        </h4>
+                            {/* Demo Paste Section */}
+                            <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
+                                <div className="p-4 border-b border-gray-700 bg-gray-900/50">
+                                    <h3 className="font-semibold flex items-center gap-2">
+                                        <ClipboardPaste size={18} className="text-orange-400" />
+                                        Paste Transcript 
+                                    </h3>
+                                    <p className="text-xs text-gray-500 mt-1">Paste lecture transcript text directly for testing without recording</p>
+                                </div>
+                                <div className="p-6">
+                                    <textarea
+                                        value={pasteText}
+                                        onChange={(e) => setPasteText(e.target.value)}
+                                        placeholder="Paste your lecture transcript here for demo purposes...&#10;&#10;Example: Today we'll be discussing machine learning fundamentals. Machine learning is a subset of artificial intelligence that enables computers to learn from data without being explicitly programmed..."
+                                        className="w-full h-32 bg-gray-900 border border-gray-700 rounded-lg p-4 text-gray-200 text-sm resize-none focus:outline-none focus:border-orange-500/50 placeholder-gray-600"
+                                    />
+
+                                    <div className="mt-4 flex gap-3">
+                                        <button
+                                            onClick={submitPasteText}
+                                            disabled={!pasteText.trim() || pasteStatus.status === 'processing'}
+                                            className={`flex-1 py-2.5 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${pasteText.trim() && pasteStatus.status !== 'processing' ? 'bg-orange-600 text-white hover:bg-orange-700' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`}
+                                        >
+                                            {pasteStatus.status === 'processing' ? <><Loader2 size={16} className="animate-spin" />Processing...</> : <><Send size={16} />Submit Pasted Text</>}
+                                        </button>
+                                        <button
+                                            onClick={() => { setPasteText(''); setPasteStatus({ status: 'idle', message: '' }); }}
+                                            disabled={!pasteText.trim()}
+                                            className={`py-2.5 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${pasteText.trim() ? 'bg-gray-600 text-white hover:bg-gray-500' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`}
+                                        >
+                                            <Trash2 size={16} />
+                                            Clear
+                                        </button>
+                                    </div>
+
+                                    {pasteStatus.message && (
+                                        <div className={`mt-3 flex items-start gap-2 p-3 rounded-lg text-sm ${pasteStatus.status === 'success' ? 'bg-emerald-500/10 text-emerald-400' : pasteStatus.status === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                                            {pasteStatus.status === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+                                            {pasteStatus.message}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* How it works */}
+                            <div className="bg-gray-800 rounded-xl border border-gray-700 p-6">
+                                <h3 className="font-semibold text-white mb-4">How it works</h3>
+                                <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                    <div className="flex gap-3">
+                                        <div className="w-8 h-8 rounded-full bg-blue-500/20 flex items-center justify-center text-blue-400 font-bold shrink-0">1</div>
+                                        <div>
+                                            <h4 className="font-medium text-white text-sm">Upload Slides</h4>
+                                            <p className="text-xs text-gray-500">Text is extracted and stored</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-3">
+                                        <div className="w-8 h-8 rounded-full bg-purple-500/20 flex items-center justify-center text-purple-400 font-bold shrink-0">2</div>
+                                        <div>
+                                            <h4 className="font-medium text-white text-sm">Record Lecture</h4>
+                                            <p className="text-xs text-gray-500">Speech auto-saves every 5s</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-3">
+                                        <div className="w-8 h-8 rounded-full bg-orange-500/20 flex items-center justify-center text-orange-400 font-bold shrink-0">3</div>
+                                        <div>
+                                            <h4 className="font-medium text-white text-sm">Or Paste Text</h4>
+                                            <p className="text-xs text-gray-500">For demos without mic</p>
+                                        </div>
+                                    </div>
+                                    <div className="flex gap-3">
+                                        <div className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold shrink-0">4</div>
+                                        <div>
+                                            <h4 className="font-medium text-white text-sm">Student Access</h4>
+                                            <p className="text-xs text-gray-500">AI summaries & Q&A ready</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Clear Content Section */}
+                            {contentStats && contentStats.document_count > 0 && (
+                                <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-6">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-4">
+                                            <div className="p-3 bg-red-500/20 rounded-lg">
+                                                <Trash2 size={24} className="text-red-400" />
+                                            </div>
+                                            <div>
+                                                <h3 className="font-semibold text-white">Lecture Finished?</h3>
+                                                <p className="text-sm text-gray-400">Clear all {contentStats.document_count} stored chunks to prepare for the next lecture</p>
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={clearContent}
+                                            className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
+                                        >
+                                            <Trash2 size={18} />
+                                            Clear All Content
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {/* TAB 2: QUIZ & OUTCOMES */}
+                    {activeTab === 'quiz' && (
+                        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                            {/* ===== LEARNING OUTCOMES SECTION ===== */}
+                            <div className="bg-gray-800 border border-gray-700 rounded-xl overflow-hidden">
+                                <div className="p-4 border-b border-gray-700 bg-gray-900/50">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2.5 bg-emerald-500/20 rounded-xl">
+                                                <Target size={22} className="text-emerald-400" />
+                                            </div>
+                                            <div>
+                                                <h3 className="font-bold text-white text-lg">Learning Outcomes</h3>
+                                                <p className="text-sm text-gray-400">Upload your module&apos;s learning outcomes PDF to align quiz generation</p>
+                                            </div>
+                                        </div>
+                                        <span className="bg-gray-700 text-gray-300 text-xs font-medium px-3 py-1 rounded-full border border-gray-600">
+                                            {learningOutcomes.length} outcomes loaded
+                                        </span>
+                                    </div>
+                                </div>
+                                <div className="p-6 space-y-4">
+                                    {/* Upload area */}
+                                    <div className="flex gap-4">
+                                        <div
+                                            className="flex-1 border-2 border-dashed rounded-xl p-4 text-center transition-all cursor-pointer border-gray-600 hover:border-emerald-500/50 hover:bg-gray-700/30"
+                                            onClick={() => outcomeFileRef.current?.click()}
+                                        >
+                                            <input ref={outcomeFileRef} type="file" accept=".pdf,.txt" className="hidden" onChange={(e) => e.target.files?.[0] && setOutcomeFile(e.target.files[0])} />
+                                            <Upload size={24} className="mx-auto text-gray-500 mb-2" />
+                                            <p className="text-white font-medium text-sm">{outcomeFile ? outcomeFile.name : 'Upload Learning Outcomes'}</p>
+                                            <p className="text-xs text-gray-500 mt-1">{outcomeFile ? `${(outcomeFile.size / 1024).toFixed(1)} KB` : 'PDF or TXT'}</p>
+                                        </div>
+                                        <button
+                                            onClick={uploadOutcomeFile}
+                                            disabled={!outcomeFile || outcomeUploadStatus.status === 'uploading'}
+                                            className={`px-6 rounded-lg font-medium transition-all flex items-center gap-2 ${outcomeFile && outcomeUploadStatus.status !== 'uploading' ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`}
+                                        >
+                                            {outcomeUploadStatus.status === 'uploading' ? <><Loader2 size={16} className="animate-spin" />Processing...</> : <><Upload size={16} />Upload</>}
+                                        </button>
+                                    </div>
+                                    {outcomeUploadStatus.message && (
+                                        <div className={`flex items-start gap-2 p-3 rounded-lg text-sm ${outcomeUploadStatus.status === 'success' ? 'bg-emerald-500/10 text-emerald-400' : outcomeUploadStatus.status === 'error' ? 'bg-red-500/10 text-red-400' : 'bg-blue-500/10 text-blue-400'}`}>
+                                            {outcomeUploadStatus.status === 'success' ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
+                                            {outcomeUploadStatus.message}
+                                        </div>
+                                    )}
+                                    {/* Outcomes list */}
+                                    {learningOutcomes.length > 0 && (
+                                        <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                                            {learningOutcomes.map((outcome) => (
+                                                <div key={outcome.id} className="flex items-start gap-3 bg-gray-900/50 rounded-lg p-3 border border-gray-700">
+                                                    <CheckCircle2 size={16} className="text-emerald-400 mt-0.5 shrink-0" />
+                                                    <p className="text-sm text-gray-300 flex-1 leading-relaxed">{outcome.text}</p>
+                                                    <button onClick={() => deleteOutcome(outcome.id)} className="p-1 hover:bg-red-500/20 rounded transition-colors group shrink-0">
+                                                        <X size={14} className="text-gray-500 group-hover:text-red-400" />
+                                                    </button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            {/* ===== CLASS QUIZ SECTION ===== */}
+                            <div className="bg-gray-800 border border-gray-700 rounded-xl overflow-hidden">
+                                <div className="p-4 border-b border-gray-700 bg-gray-900/50">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-3">
+                                            <div className="p-2.5 bg-blue-500/20 rounded-xl">
+                                                <Brain size={22} className="text-blue-400" />
+                                            </div>
+                                            <div>
+                                                <h3 className="font-bold text-white text-lg flex items-center gap-2">
+                                                    AI-Generated Quiz
+                                                    <span className="px-2 py-0.5 bg-gray-700 text-gray-300 text-xs font-medium rounded-full border border-gray-600">
+                                                        <Sparkles size={10} className="inline mr-1" />
+                                                        From Lecture Content + Outcomes
+                                                    </span>
+                                                </h3>
+                                                <p className="text-sm text-gray-400">Questions generated from your lecture content aligned with learning outcomes</p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <button
+                                                onClick={() => setShowGenerateModal(true)}
+                                                disabled={learningOutcomes.length === 0}
+                                                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all ${learningOutcomes.length > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`}
+                                                title={learningOutcomes.length === 0 ? 'Upload learning outcomes first' : ''}
+                                            >
+                                                <Wand2 size={18} />
+                                                Generate Quiz
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="p-6 space-y-6">
+                                    {quizzes.length === 0 ? (
+                                        <div className="text-center py-12">
+                                            <div className="w-16 h-16 bg-blue-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                                                <HelpCircle size={32} className="text-blue-400" />
+                                            </div>
+                                            <h4 className="text-lg font-semibold text-white mb-2">No Quizzes Yet</h4>
+                                            <p className="text-gray-400 mb-6">Upload learning outcomes, then generate AI-powered quizzes</p>
+                                            <button
+                                                onClick={() => setShowGenerateModal(true)}
+                                                disabled={learningOutcomes.length === 0}
+                                                className={`inline-flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-all ${learningOutcomes.length > 0 ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-700 text-gray-500 cursor-not-allowed'}`}
+                                            >
+                                                <Wand2 size={18} />
+                                                Generate Your First Quiz
+                                            </button>
+                                        </div>
+                                    ) : (
                                         <div className="space-y-4">
-                                            {getTopicAnalytics().map((topic) => (
-                                                <div key={topic.topic}>
-                                                    <div className="flex items-center justify-between mb-1.5">
-                                                        <span className="text-sm text-gray-300">{topic.topic}</span>
-                                                        <span className="text-sm font-medium text-white">
-                                                            {topic.percentage}% ({topic.correct}/{topic.total})
-                                                        </span>
-                                                    </div>
-                                                    <div className="w-full bg-gray-700 rounded-full h-3 overflow-hidden">
-                                                        <div
-                                                            className={`h-full rounded-full transition-all duration-500 ${topic.percentage >= 80 ? 'bg-gradient-to-r from-emerald-500 to-emerald-400' :
-                                                                topic.percentage >= 60 ? 'bg-gradient-to-r from-yellow-500 to-yellow-400' :
-                                                                    'bg-gradient-to-r from-red-500 to-red-400'
-                                                                }`}
-                                                            style={{ width: `${topic.percentage}%` }}
-                                                        />
+                                            {quizzes.map((quiz: Quiz) => (
+                                                <div key={quiz.id} className={`bg-gray-800/80 rounded-xl border transition-all ${quiz.status === 'released' ? 'border-emerald-500/50 shadow-lg shadow-emerald-500/10' : 'border-gray-700 hover:border-indigo-500/50'}`}>
+                                                    <div className="p-4">
+                                                        {/* Quiz header */}
+                                                        <div className="flex items-center justify-between mb-3">
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${quiz.difficulty === 'Beginner' ? 'bg-green-500/20 text-green-400' : quiz.difficulty === 'Intermediate' ? 'bg-yellow-500/20 text-yellow-400' : 'bg-red-500/20 text-red-400'}`}>
+                                                                    {quiz.difficulty}
+                                                                </span>
+                                                                <span className="text-xs text-gray-500">{quiz.num_questions} questions</span>
+                                                                <span className="text-xs text-gray-600">Created {new Date(quiz.created_at).toLocaleDateString()}</span>
+                                                            </div>
+                                                            <div className="flex items-center gap-2">
+                                                                {quiz.status === 'released' && (
+                                                                    <span className="flex items-center gap-1 text-xs text-emerald-400"><CheckCheck size={14} />Released</span>
+                                                                )}
+                                                                <button onClick={() => removeQuiz(quiz.id)} className="p-1 hover:bg-red-500/20 rounded transition-colors group" title="Remove quiz">
+                                                                    <X size={14} className="text-gray-500 group-hover:text-red-400" />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+
+                                                        {/* Questions preview */}
+                                                        <div className="space-y-2 mb-4">
+                                                            {quiz.questions.slice(0, 3).map((q: QuizQuestion, qi: number) => (
+                                                                <div key={qi} className="bg-gray-900/50 rounded-lg p-3 border border-gray-700">
+                                                                    <p className="text-sm text-white font-medium mb-1">Q{q.id}. {q.question}</p>
+                                                                    {q.learningOutcome && (
+                                                                        <p className="text-[10px] text-emerald-400/70 mt-1 truncate">LO: {q.learningOutcome}</p>
+                                                                    )}
+                                                                </div>
+                                                            ))}
+                                                            {quiz.questions.length > 3 && (
+                                                                <p className="text-xs text-gray-500 text-center">+ {quiz.questions.length - 3} more questions</p>
+                                                            )}
+                                                        </div>
+
+                                                        {quiz.status === 'released' ? (
+                                                            <div className="flex gap-2">
+                                                                <button
+                                                                    disabled
+                                                                    className="w-1/3 py-2 px-4 rounded-lg font-medium bg-gray-700 text-gray-500 cursor-not-allowed flex items-center justify-center gap-2"
+                                                                >
+                                                                    <CheckCircle2 size={16} />Released
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => fetchAnalytics(quiz.id)}
+                                                                    className="w-2/3 py-2 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 bg-purple-600 text-white hover:bg-purple-700"
+                                                                >
+                                                                    <BarChart size={16} />View Analytics
+                                                                </button>
+                                                            </div>
+                                                        ) : (
+                                                            <div className="flex gap-2 w-full">
+                                                                <button
+                                                                    onClick={() => openEditQuiz(quiz)}
+                                                                    className="flex-1 py-2 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 bg-gray-700 text-gray-200 hover:bg-gray-600"
+                                                                >
+                                                                    <Settings size={16} />Edit
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => releaseQuiz(quiz.id)}
+                                                                    className="flex-[2] py-2 px-4 rounded-lg font-medium transition-all flex items-center justify-center gap-2 bg-indigo-600 text-white hover:bg-indigo-700"
+                                                                >
+                                                                    <PlayCircle size={16} />Release to Class
+                                                                </button>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 </div>
                                             ))}
                                         </div>
-                                    </div>
-
-                                    {/* Insights Panel */}
-                                    <div className="bg-gradient-to-r from-emerald-500/10 to-blue-500/10 rounded-xl border border-emerald-500/30 p-6">
-                                        <h4 className="font-semibold text-white mb-3 flex items-center gap-2">
-                                            <Sparkles size={18} className="text-emerald-400" />
-                                            AI Insights
-                                        </h4>
-                                        <div className="space-y-2 text-sm text-gray-300">
-                                            <p className="flex items-start gap-2">
-                                                <CheckCircle2 size={16} className="text-emerald-400 mt-0.5 shrink-0" />
-                                                <span><strong className="text-white">Strong understanding</strong> in Neural Networks and Machine Learning topics</span>
-                                            </p>
-                                            <p className="flex items-start gap-2">
-                                                <AlertCircle size={16} className="text-yellow-400 mt-0.5 shrink-0" />
-                                                <span><strong className="text-white">Consider reviewing</strong> Data Structures - some students struggled with complexity analysis</span>
-                                            </p>
-                                            <p className="flex items-start gap-2">
-                                                <TrendingUp size={16} className="text-blue-400 mt-0.5 shrink-0" />
-                                                <span><strong className="text-white">Participation rate</strong> is excellent - {getOverallStats().uniqueStudents} out of 5 students engaged with quizzes</span>
-                                            </p>
-                                        </div>
-                                    </div>
+                                    )}
                                 </div>
-                            )}
-                        </div>
-                    </div>
-
-
-                    {/* Clear Content Section */}
-                    {contentStats && contentStats.document_count > 0 && (
-                        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-6">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-4">
-                                    <div className="p-3 bg-red-500/20 rounded-lg">
-                                        <Trash2 size={24} className="text-red-400" />
-                                    </div>
-                                    <div>
-                                        <h3 className="font-semibold text-white">Lecture Finished?</h3>
-                                        <p className="text-sm text-gray-400">Clear all {contentStats.document_count} stored chunks to prepare for the next lecture</p>
-                                    </div>
-                                </div>
-                                <button
-                                    onClick={clearContent}
-                                    className="px-6 py-3 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors flex items-center gap-2"
-                                >
-                                    <Trash2 size={18} />
-                                    Clear All Content
-                                </button>
                             </div>
                         </div>
                     )}
@@ -1082,18 +1107,13 @@ export default function StudentPerformanceSection() {
 
                         {/* Modal Content */}
                         <div className="p-6 space-y-6">
-                            {/* Topic Selection */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-300 mb-2">Select Topic</label>
-                                <select
-                                    value={selectedTopic}
-                                    onChange={(e) => setSelectedTopic(e.target.value)}
-                                    className="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                                >
-                                    {availableTopics.map((topic) => (
-                                        <option key={topic} value={topic}>{topic}</option>
-                                    ))}
-                                </select>
+                            {/* Learning Outcomes Info */}
+                            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-lg p-4">
+                                <div className="flex items-center gap-2 mb-1">
+                                    <Target size={16} className="text-emerald-400" />
+                                    <span className="text-sm font-medium text-emerald-400">{learningOutcomes.length} Learning Outcomes Loaded</span>
+                                </div>
+                                <p className="text-xs text-gray-400">Questions will be aligned to your uploaded learning outcomes</p>
                             </div>
 
                             {/* Difficulty Selection */}
@@ -1125,23 +1145,31 @@ export default function StudentPerformanceSection() {
                                 <input
                                     type="range"
                                     min="1"
-                                    max="10"
+                                    max="15"
                                     value={questionCount}
                                     onChange={(e) => setQuestionCount(parseInt(e.target.value))}
                                     className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer accent-indigo-500"
                                 />
                                 <div className="flex justify-between text-xs text-gray-500 mt-1">
                                     <span>1</span>
-                                    <span>5</span>
-                                    <span>10</span>
+                                    <span>8</span>
+                                    <span>15</span>
                                 </div>
                             </div>
+
+                            {/* Error message */}
+                            {generateError && (
+                                <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 flex items-start gap-2">
+                                    <AlertCircle size={16} className="text-red-400 shrink-0 mt-0.5" />
+                                    <p className="text-sm text-red-400">{generateError}</p>
+                                </div>
+                            )}
 
                             {/* Preview */}
                             <div className="bg-gray-800/50 rounded-lg p-4 border border-gray-700">
                                 <p className="text-sm text-gray-400">
                                     <Sparkles size={14} className="inline mr-2 text-purple-400" />
-                                    Will generate <strong className="text-white">{questionCount}</strong> {selectedDifficulty.toLowerCase()} questions about <strong className="text-white">{selectedTopic}</strong>
+                                    Will generate <strong className="text-white">{questionCount}</strong> {selectedDifficulty.toLowerCase()} questions from lecture content aligned with <strong className="text-white">{learningOutcomes.length}</strong> learning outcomes
                                 </p>
                             </div>
                         </div>
@@ -1164,6 +1192,404 @@ export default function StudentPerformanceSection() {
                                 ) : (
                                     <><Wand2 size={18} />Generate Quiz</>
                                 )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ===== PENDING OUTCOMES MODAL ===== */}
+            {showPendingModal && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm">
+                    <div className="bg-gray-900 rounded-2xl border border-blue-500/50 shadow-2xl shadow-blue-500/20 w-full max-w-4xl max-h-[90vh] mx-4 flex flex-col">
+                        <div className="bg-gradient-to-r from-blue-600/30 to-indigo-600/30 px-6 py-4 border-b border-gray-700 flex items-center justify-between shrink-0">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-blue-500/20 rounded-lg">
+                                    <Target size={22} className="text-blue-400" />
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-white text-lg">Review Extracted Outcomes</h3>
+                                    <p className="text-sm text-gray-400">Edit, remove or add outcomes before saving.</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setShowPendingModal(false)}
+                                className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+                            >
+                                <X size={20} className="text-gray-400" />
+                            </button>
+                        </div>
+                        <div className="p-6 overflow-y-auto flex-1 space-y-4">
+                            {pendingOutcomes.map((outcome, idx) => (
+                                <div key={idx} className="flex items-start gap-3 bg-gray-800/50 p-3 rounded-lg border border-gray-700 group">
+                                    <div className="mt-2 text-gray-500 font-medium text-sm w-6 shrink-0">{idx + 1}.</div>
+                                    <textarea
+                                        value={outcome}
+                                        onChange={(e) => updatePendingOutcome(idx, e.target.value)}
+                                        className="flex-1 bg-gray-900/50 border border-gray-700 rounded-lg p-2 text-sm text-gray-300 min-h-[60px] focus:outline-none focus:border-blue-500/50"
+                                    />
+                                    <button
+                                        onClick={() => removePendingOutcome(idx)}
+                                        className="mt-2 p-1.5 hover:bg-red-500/20 rounded text-gray-500 hover:text-red-400 transition-colors"
+                                        title="Remove outcome"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
+                            ))}
+                            {pendingOutcomes.length === 0 && (
+                                <div className="text-center py-6 text-gray-400">
+                                    No outcomes extracted. You can add them manually below.
+                                </div>
+                            )}
+
+                            {/* Add manual outcome */}
+                            <div className="flex gap-2 pt-4 border-t border-gray-800">
+                                <input
+                                    type="text"
+                                    value={newOutcomeText}
+                                    onChange={(e) => setNewOutcomeText(e.target.value)}
+                                    placeholder="Add a missing outcome..."
+                                    className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50"
+                                    onKeyDown={(e) => e.key === 'Enter' && addPendingOutcome()}
+                                />
+                                <button
+                                    onClick={addPendingOutcome}
+                                    disabled={!newOutcomeText.trim()}
+                                    className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 disabled:opacity-50 transition-colors flex items-center gap-2"
+                                >
+                                    <Plus size={16} /> Add
+                                </button>
+                            </div>
+                        </div>
+                        <div className="px-6 py-4 border-t border-gray-700 bg-gray-800/50 flex justify-end gap-3">
+                            <button
+                                onClick={() => setShowPendingModal(false)}
+                                className="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium hover:bg-gray-600 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={saveApprovedOutcomes}
+                                disabled={isSavingOutcomes || pendingOutcomes.length === 0}
+                                className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                            >
+                                {isSavingOutcomes ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
+                                Save {pendingOutcomes.length} Outcomes
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ===== ANALYTICS MODAL ===== */}
+            {showAnalytics && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm">
+                    <div className="bg-gray-900 rounded-2xl border border-purple-500/50 shadow-2xl shadow-purple-500/20 w-full max-w-5xl max-h-[90vh] mx-4 flex flex-col">
+                        {/* Header */}
+                        <div className="bg-gradient-to-r from-indigo-600/30 to-purple-600/30 px-6 py-4 border-b border-gray-700 flex items-center justify-between shrink-0">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-purple-500/20 rounded-lg">
+                                    <BarChart size={22} className="text-purple-400" />
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-white text-lg">Quiz Performance Analytics</h3>
+                                    <p className="text-sm text-gray-400">Class results and learning outcome achievement</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={() => setShowAnalytics(false)}
+                                className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+                            >
+                                <X size={20} className="text-gray-400" />
+                            </button>
+                        </div>
+
+                        {/* Content */}
+                        <div className="p-6 overflow-y-auto flex-1">
+                            {isAnalyticsLoading ? (
+                                <div className="flex flex-col items-center justify-center py-20">
+                                    <Loader2 size={40} className="animate-spin text-purple-500 mb-4" />
+                                    <p className="text-gray-400">Loading analytics data...</p>
+                                </div>
+                            ) : !analyticsData ? (
+                                <div className="flex flex-col items-center justify-center py-20 text-center">
+                                    <AlertCircle size={40} className="text-red-400 mb-4" />
+                                    <p className="text-white font-medium">Failed to load analytics</p>
+                                    <p className="text-gray-400 text-sm">Please try again later.</p>
+                                </div>
+                            ) : analyticsData.total_submissions === 0 ? (
+                                <div className="flex flex-col items-center justify-center py-20 text-center">
+                                    <div className="w-16 h-16 bg-gray-800 rounded-full flex items-center justify-center mb-4">
+                                        <Users size={32} className="text-gray-500" />
+                                    </div>
+                                    <h4 className="text-lg font-semibold text-white mb-2">No Submissions Yet</h4>
+                                    <p className="text-gray-400 max-w-sm">Students haven't taken this quiz yet. Analytics will appear here once responses are submitted.</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-6">
+                                    {/* Stats grid */}
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                        <div className="bg-gray-800/80 rounded-xl p-4 border border-gray-700">
+                                            <p className="text-sm text-gray-400 mb-1">Total Submissions</p>
+                                            <p className="text-2xl font-bold text-white flex items-center gap-2">
+                                                <Users size={20} className="text-blue-400" />
+                                                {analyticsData.total_submissions}
+                                            </p>
+                                        </div>
+                                        <div className="bg-gray-800/80 rounded-xl p-4 border border-gray-700">
+                                            <p className="text-sm text-gray-400 mb-1">Class Average</p>
+                                            <p className="text-2xl font-bold text-white flex items-center gap-2">
+                                                <Target size={20} className="text-emerald-400" />
+                                                {analyticsData.stats.average_percentage}%
+                                            </p>
+                                        </div>
+                                        <div className="bg-gray-800/80 rounded-xl p-4 border border-gray-700">
+                                            <p className="text-sm text-gray-400 mb-1">Highest Score</p>
+                                            <p className="text-2xl font-bold text-white flex items-center gap-2">
+                                                <TrendingUp size={20} className="text-indigo-400" />
+                                                {analyticsData.stats.max_score} / {analyticsData.stats.max_total}
+                                            </p>
+                                        </div>
+                                        <div className="bg-gray-800/80 rounded-xl p-4 border border-gray-700">
+                                            <p className="text-sm text-gray-400 mb-1">Pass Rate (&ge;60%)</p>
+                                            <p className="text-2xl font-bold text-white flex items-center gap-2">
+                                                <CheckCheck size={20} className="text-green-400" />
+                                                {Math.round((analyticsData.pass_fail.passed / analyticsData.total_submissions) * 100)}%
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                        {/* Score Distribution (Histogram) */}
+                                        <div className="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
+                                            <h4 className="font-semibold text-white mb-4 flex items-center gap-2">
+                                                <BarChart size={18} className="text-blue-400" />
+                                                Score Distribution
+                                            </h4>
+                                            <div className="h-64">
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <RechartsBarChart data={analyticsData.score_distribution} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                                        <XAxis dataKey="range" stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                                                        <YAxis stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} allowDecimals={false} />
+                                                        <Tooltip cursor={{ fill: 'rgba(255,255,255,0.05)' }} contentStyle={{ backgroundColor: '#1f2937', borderColor: '#374151', borderRadius: '0.5rem', color: '#fff' }} />
+                                                        <Bar dataKey="count" fill="#6366f1" radius={[4, 4, 0, 0]}>
+                                                            {analyticsData.score_distribution.map((entry: any, index: number) => (
+                                                                <Cell key={`cell-${index}`} fill={index > 2 ? '#34d399' : index === 2 ? '#fbbf24' : '#f87171'} />
+                                                            ))}
+                                                        </Bar>
+                                                    </RechartsBarChart>
+                                                </ResponsiveContainer>
+                                            </div>
+                                        </div>
+
+                                        {/* Pass / Fail Pie Chart */}
+                                        <div className="bg-gray-800/50 rounded-xl p-5 border border-gray-700">
+                                            <h4 className="font-semibold text-white mb-4 flex items-center gap-2">
+                                                <Target size={18} className="text-emerald-400" />
+                                                Pass vs Fail Ratio
+                                            </h4>
+                                            <div className="h-64 flex items-center justify-center">
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <PieChart>
+                                                        <Pie
+                                                            data={[
+                                                                { name: 'Passed', value: analyticsData.pass_fail.passed },
+                                                                { name: 'Failed', value: analyticsData.pass_fail.failed }
+                                                            ]}
+                                                            cx="50%"
+                                                            cy="50%"
+                                                            labelLine={false}
+                                                            outerRadius={80}
+                                                            fill="#8884d8"
+                                                            dataKey="value"
+                                                            label={({ name, percent }) => percent > 0 ? `${name} ${(percent * 100).toFixed(0)}%` : ''}
+                                                        >
+                                                            <Cell fill="#34d399" />
+                                                            <Cell fill="#f87171" />
+                                                        </Pie>
+                                                        <Tooltip contentStyle={{ backgroundColor: '#1f2937', borderColor: '#374151', borderRadius: '0.5rem', color: '#fff' }} />
+                                                    </PieChart>
+                                                </ResponsiveContainer>
+                                            </div>
+                                        </div>
+
+                                        {/* Learning Outcome Achievement (Horizontal Bar) */}
+                                        <div className="bg-gray-800/50 rounded-xl p-5 border border-gray-700 lg:col-span-2">
+                                            <h4 className="font-semibold text-white mb-4 flex items-center gap-2">
+                                                <Brain size={18} className="text-purple-400" />
+                                                Learning Outcome Achievement
+                                            </h4>
+                                            <div className="h-72">
+                                                <ResponsiveContainer width="100%" height="100%">
+                                                    <RechartsBarChart
+                                                        data={analyticsData.learning_outcome_achievement}
+                                                        layout="vertical"
+                                                        margin={{ top: 5, right: 30, left: 20, bottom: 5 }}
+                                                    >
+                                                        <XAxis type="number" domain={[0, 100]} stroke="#9ca3af" fontSize={12} tickLine={false} axisLine={false} />
+                                                        <YAxis dataKey="outcome" type="category" stroke="#9ca3af" fontSize={11} width={150} tickLine={false} axisLine={false} />
+                                                        <Tooltip
+                                                            cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                                                            contentStyle={{ backgroundColor: '#1f2937', borderColor: '#374151', borderRadius: '0.5rem', color: '#fff' }}
+                                                            formatter={(val) => [`${val}%`, 'Accuracy']}
+                                                        />
+                                                        <Bar dataKey="percentage" name="Accuracy" radius={[0, 4, 4, 0]}>
+                                                            {analyticsData.learning_outcome_achievement.map((entry: any, index: number) => (
+                                                                <Cell key={`cell-${index}`} fill={entry.percentage >= 70 ? '#10b981' : entry.percentage >= 40 ? '#f59e0b' : '#ef4444'} />
+                                                            ))}
+                                                        </Bar>
+                                                    </RechartsBarChart>
+                                                </ResponsiveContainer>
+                                            </div>
+                                        </div>
+
+                                        {/* Difficulty Breakdown (Doughnut) */}
+                                        <div className="bg-gray-800/50 rounded-xl p-5 border border-gray-700 lg:col-span-2">
+                                            <h4 className="font-semibold text-white mb-4 flex items-center gap-2">
+                                                <Wand2 size={18} className="text-pink-400" />
+                                                Performance by Question Difficulty
+                                            </h4>
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                {analyticsData.difficulty_breakdown.map((diff: any, idx: number) => (
+                                                    <div key={idx} className="bg-gray-900/50 rounded-lg p-4 border border-gray-700/50 flex flex-col items-center">
+                                                        <span className={`text-sm font-medium mb-2 ${diff.difficulty === 'Beginner' ? 'text-green-400' : diff.difficulty === 'Intermediate' ? 'text-yellow-400' : 'text-red-400'}`}>
+                                                            {diff.difficulty} Breakdown
+                                                        </span>
+                                                        <div className="h-32 w-full">
+                                                            <ResponsiveContainer width="100%" height="100%">
+                                                                <PieChart>
+                                                                    <Pie
+                                                                        data={[
+                                                                            { name: 'Correct', value: diff.correct },
+                                                                            { name: 'Incorrect', value: diff.incorrect }
+                                                                        ]}
+                                                                        cx="50%"
+                                                                        cy="50%"
+                                                                        innerRadius={30}
+                                                                        outerRadius={50}
+                                                                        fill="#8884d8"
+                                                                        dataKey="value"
+                                                                    >
+                                                                        <Cell fill="#34d399" />
+                                                                        <Cell fill="#f87171" />
+                                                                    </Pie>
+                                                                    <Tooltip contentStyle={{ backgroundColor: '#1f2937', borderColor: '#374151', borderRadius: '0.5rem', color: '#fff' }} />
+                                                                </PieChart>
+                                                            </ResponsiveContainer>
+                                                        </div>
+                                                        <div className="mt-2 text-center w-full">
+                                                            <div className="flex justify-between text-xs text-gray-400 mb-1">
+                                                                <span>Accuracy:</span>
+                                                                <span className="font-bold text-white">{diff.percentage}%</span>
+                                                            </div>
+                                                            <div className="w-full bg-gray-700 rounded-full h-1.5">
+                                                                <div className={`h-1.5 rounded-full ${diff.percentage >= 70 ? 'bg-emerald-500' : diff.percentage >= 40 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${diff.percentage}%` }}></div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                                {analyticsData.difficulty_breakdown.length === 0 && (
+                                                    <div className="col-span-3 text-center py-8 text-gray-500 text-sm">
+                                                        No difficulty data available
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* ===== EDIT QUIZ MODAL ===== */}
+            {editingQuiz && (
+                <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 backdrop-blur-sm">
+                    <div className="bg-gray-900 rounded-2xl border border-indigo-500/50 shadow-2xl shadow-indigo-500/20 w-full max-w-4xl max-h-[90vh] mx-4 flex flex-col">
+                        <div className="bg-gradient-to-r from-gray-800 to-gray-700 px-6 py-4 border-b border-gray-700 flex items-center justify-between shrink-0">
+                            <div className="flex items-center gap-3">
+                                <div className="p-2 bg-gray-600 rounded-lg">
+                                    <Settings size={22} className="text-gray-200" />
+                                </div>
+                                <div>
+                                    <h3 className="font-bold text-white text-lg">Edit Quiz</h3>
+                                    <p className="text-sm text-gray-400">Modify questions, answers, and regenerate questions.</p>
+                                </div>
+                            </div>
+                            <button
+                                onClick={closeEditQuiz}
+                                className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
+                            >
+                                <X size={20} className="text-gray-400" />
+                            </button>
+                        </div>
+
+                        <div className="p-6 overflow-y-auto flex-1 space-y-6">
+                            {editingQuiz.questions.map((question, qIndex) => (
+                                <div key={question.id || qIndex} className="bg-gray-800/80 p-5 rounded-xl border border-gray-700 space-y-4">
+                                    <div className="flex justify-between items-start gap-4">
+                                        <div className="flex-1 space-y-2">
+                                            <div className="flex items-center gap-2 mb-2">
+                                                <span className="bg-indigo-500/20 text-indigo-400 text-xs px-2.5 py-1 rounded-full font-medium">Question {qIndex + 1}</span>
+                                                {question.learningOutcome && (
+                                                    <span className="text-xs text-emerald-400/80 line-clamp-1 border border-emerald-500/20 rounded px-2 py-0.5">LO: {question.learningOutcome}</span>
+                                                )}
+                                            </div>
+                                            <textarea
+                                                className="w-full bg-gray-900/50 border border-gray-600 rounded-lg p-3 text-white focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 min-h-[80px]"
+                                                value={question.question}
+                                                onChange={(e) => handleEditQuestionText(qIndex, e.target.value)}
+                                            />
+                                        </div>
+                                        <button
+                                            onClick={() => regenerateQuestion(qIndex, question.id)}
+                                            disabled={isRegeneratingQuestion === question.id}
+                                            className="px-4 py-2 bg-purple-600/20 text-purple-400 border border-purple-500/30 rounded-lg hover:bg-purple-600/30 transition-colors flex items-center gap-2 whitespace-nowrap disabled:opacity-50"
+                                        >
+                                            {isRegeneratingQuestion === question.id ? (
+                                                <><Loader2 size={16} className="animate-spin" />Regenerating...</>
+                                            ) : (
+                                                <><Wand2 size={16} />Regenerate</>
+                                            )}
+                                        </button>
+                                    </div>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4">
+                                        {question.options.map((opt, optIndex) => (
+                                            <div key={optIndex} className={`flex items-center gap-3 p-2 rounded-lg border transition-colors ${question.correctAnswer === optIndex ? 'border-emerald-500 bg-emerald-500/10' : 'border-gray-700 bg-gray-900/30'}`}>
+                                                <button
+                                                    onClick={() => handleSetCorrectAnswer(qIndex, optIndex)}
+                                                    className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 ${question.correctAnswer === optIndex ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-gray-500 hover:border-emerald-400/50'}`}
+                                                >
+                                                    {question.correctAnswer === optIndex && <CheckCircle2 size={14} />}
+                                                </button>
+                                                <input
+                                                    className={`w-full bg-transparent border-none text-sm focus:outline-none focus:ring-0 ${question.correctAnswer === optIndex ? 'text-emerald-300' : 'text-gray-300'}`}
+                                                    value={opt}
+                                                    onChange={(e) => handleEditOptionText(qIndex, optIndex, e.target.value)}
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="px-6 py-4 border-t border-gray-700 bg-gray-800/50 flex justify-end gap-3 shrink-0">
+                            <button
+                                onClick={closeEditQuiz}
+                                className="px-4 py-2 bg-gray-700 text-gray-300 rounded-lg font-medium hover:bg-gray-600 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={saveEditedQuiz}
+                                disabled={isSavingQuiz}
+                                className="px-6 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-colors flex items-center gap-2 disabled:opacity-50"
+                            >
+                                {isSavingQuiz ? <Loader2 size={16} className="animate-spin" /> : <CheckCheck size={16} />}
+                                Save Changes
                             </button>
                         </div>
                     </div>

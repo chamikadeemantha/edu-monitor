@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 venv/
+.venv/
 *.pkl
 !backend/modules/engagement/models/engagement_model.pkl
 .pytest_cache/
@@ -32,3 +33,7 @@ backend/modules/performance/vector_db
 # Ignored Folders
 Document Related/
 Website/
+backend/modules/performance/data
+
+# Deep Re-ID cloned library (not project source code)
+backend/deep-person-reid/
