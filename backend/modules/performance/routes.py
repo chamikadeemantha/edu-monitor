@@ -4,7 +4,7 @@ Handles lecture content upload, transcript processing, AI-powered summarization/
 learning outcomes management, and AI quiz generation.
 Gracefully handles cases when Ollama LLM is not available.
 """
-from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import Optional, List
@@ -56,6 +56,9 @@ from .quiz_service import (
     submit_quiz_response,
     get_quiz_responses,
     get_quiz_analytics,
+    regenerate_quiz_question,
+    update_quiz_questions,
+    has_student_completed_quiz,
 )
 
 logger = logging.getLogger(__name__)
@@ -460,6 +463,9 @@ async def transcribe_audio_chunk(file: UploadFile = File(...)):
         # Transcribe locally with Faster Whisper
         transcript = transcribe_audio(audio_bytes, filename=file.filename or "audio.webm")
 
+        if transcript is None:
+            transcript = ""
+
         # Filter common Whisper hallucinations (when mic is muted but recording)
         hallucinations = ["thank you.", "bye.", "subscribe", "thanks for watching", "subtitles by"]
         lower_transcript = transcript.lower().strip()
@@ -584,6 +590,28 @@ async def generate_quiz_endpoint(request: QuizGenerateRequest, db: Session = Dep
         raise HTTPException(status_code=500, detail=f"Quiz generation failed: {str(e)}")
 
 
+@router.post("/quiz/regenerate-question")
+async def regenerate_question_endpoint(request: Request, db: Session = Depends(get_db)):
+    """Regenerate a single quiz question."""
+    try:
+        data = await request.json()
+        question_id = data.get("question_id")
+        
+        if not question_id:
+            raise HTTPException(status_code=400, detail="question_id is required")
+            
+        new_question = regenerate_quiz_question(question_id, db)
+        return {"success": True, "question": new_question}
+        
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        logger.error(f"Generate question error: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to regenerate question: {str(e)}")
+
+
 @router.get("/quizzes")
 async def list_quizzes(db: Session = Depends(get_db)):
     """Get all generated quizzes (teacher view)."""
@@ -612,6 +640,21 @@ async def get_quiz_endpoint(quiz_id: str, db: Session = Depends(get_db)):
     if not quiz:
         raise HTTPException(status_code=404, detail="Quiz not found")
     return {"success": True, "quiz": quiz}
+
+
+@router.put("/quiz/{quiz_id}")
+async def update_quiz_endpoint(quiz_id: str, request: Request, db: Session = Depends(get_db)):
+    """Update quiz questions."""
+    data = await request.json()
+    questions = data.get("questions", [])
+    if not questions:
+        raise HTTPException(status_code=400, detail="No questions provided to update")
+        
+    updated_quiz = update_quiz_questions(quiz_id, questions, db)
+    if not updated_quiz:
+        raise HTTPException(status_code=404, detail="Quiz not found")
+        
+    return {"success": True, "quiz": updated_quiz}
 
 
 @router.put("/quiz/{quiz_id}/release")
@@ -645,10 +688,28 @@ async def submit_quiz(quiz_id: str, request: QuizSubmitRequest, db: Session = De
         )
         return {"success": True, "result": result}
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        msg = str(e)
+        # Return 409 Conflict when student already submitted
+        if "already submitted" in msg:
+            raise HTTPException(status_code=409, detail=msg)
+        raise HTTPException(status_code=404, detail=msg)
     except Exception as e:
         logger.error(f"Quiz submission error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/quiz/{quiz_id}/check-attempt")
+async def check_quiz_attempt(
+    quiz_id: str,
+    student_id: str,
+    db: Session = Depends(get_db),
+):
+    """
+    Check whether a student has already submitted a response for a given quiz.
+    Returns {"completed": true/false}.
+    """
+    completed = has_student_completed_quiz(quiz_id, student_id, db)
+    return {"completed": completed}
 
 
 @router.get("/quiz/{quiz_id}/responses")
