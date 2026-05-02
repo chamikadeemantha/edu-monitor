@@ -28,3 +28,7 @@ training_output.txt
 *.log
 
 backend/modules/performance/vector_db
+
+# Ignored Folders
+Document Related/
+Website/
