@@ -4,21 +4,15 @@ import React, { useState } from "react";
 // Removed unnecessary imports for sidebar/navigation
 import {
   BarChart3,
-  BrainCircuit,
-  Settings2,
   TrendingUp,
   Activity,
   AlertTriangle,
   X,
-  ChevronDown,
-  ChevronUp,
   Bell
 } from 'lucide-react';
 
 
 import {
-  LineChart,
-  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -31,25 +25,109 @@ import {
 import EngagementDetailsModal from './EngagementDetailsModal';
 import UserProfileMenu from "@/components/UserProfileMenu";
 
+type EngagementStats = {
+  total: number;
+  engaged: number;
+  off_task: number;
+  context_dependent: number;
+  decisive_total: number;
+  active: number;
+};
+
+type ZoneStats = {
+  engaged: number;
+  off_task: number;
+  context_dependent: number;
+  decisive_total: number;
+  total: number;
+};
+
+type HistoryApiPoint = {
+  timestamp: number;
+  engaged?: number;
+  total?: number;
+  context_dependent?: number;
+  decisive_total?: number;
+  front_engaged?: number;
+  front_total?: number;
+  front_context?: number;
+  front_decisive_total?: number;
+  mid_engaged?: number;
+  mid_total?: number;
+  mid_context?: number;
+  mid_decisive_total?: number;
+  back_engaged?: number;
+  back_total?: number;
+  back_context?: number;
+  back_decisive_total?: number;
+};
+
+type HistoryChartPoint = {
+  time: string;
+  eng: number;
+  front_eng: number;
+  mid_eng: number;
+  back_eng: number;
+  context: number;
+  decisive_total: number;
+  front_context: number;
+  front_decisive_total: number;
+  mid_context: number;
+  mid_decisive_total: number;
+  back_context: number;
+  back_decisive_total: number;
+  front_total: number;
+  mid_total: number;
+  back_total: number;
+  total: number;
+};
+
+const DEFAULT_STATS: EngagementStats = {
+  total: 0,
+  engaged: 0,
+  off_task: 0,
+  context_dependent: 0,
+  decisive_total: 0,
+  active: 0,
+};
+
+const DEFAULT_GROUP_STATS: Record<string, ZoneStats> = {
+  "Front Row": { engaged: 0, off_task: 0, context_dependent: 0, decisive_total: 0, total: 0 },
+  "Middle Row": { engaged: 0, off_task: 0, context_dependent: 0, decisive_total: 0, total: 0 },
+  "Back Row": { engaged: 0, off_task: 0, context_dependent: 0, decisive_total: 0, total: 0 }
+};
+
+const getDecisiveTotal = (total: number, contextDependent: number, decisiveTotal?: number) => {
+  if (typeof decisiveTotal === 'number' && decisiveTotal >= 0) return decisiveTotal;
+  return Math.max(total - contextDependent, 0);
+};
+
+const getOnTaskPercent = (engaged: number, total: number, contextDependent: number, decisiveTotal?: number) => {
+  const effectiveTotal = getDecisiveTotal(total, contextDependent, decisiveTotal);
+  return effectiveTotal > 0 ? Math.round((engaged / effectiveTotal) * 100) : 0;
+};
+
 
 
 export default function StudentBehaviorPage() {
   // Removed activeTab and manual router logic
 
-  const [stats, setStats] = useState({ total: 0, engaged: 0, active: 0 });
-  const [groupStats, setGroupStats] = useState({
-    "Front Row": { engaged: 0, total: 0 },
-    "Middle Row": { engaged: 0, total: 0 },
-    "Back Row": { engaged: 0, total: 0 }
-  });
+  const [stats, setStats] = useState<EngagementStats>(DEFAULT_STATS);
+  const [groupStats, setGroupStats] = useState<Record<string, ZoneStats>>(DEFAULT_GROUP_STATS);
   const [showDetails, setShowDetails] = useState(false);
   const [visualizeGroups, setVisualizeGroups] = useState(false);
 
   // New Advanced State
   const [visualStyle, setVisualStyle] = useState("dots"); // "dots", "boxes", "detailed"
-  const [modalDataKeys, setModalDataKeys] = useState<{ engaged: string, total: string, label: string } | undefined>(undefined);
+  const [modalDataKeys, setModalDataKeys] = useState<{
+    engaged: string;
+    total: string;
+    context?: string;
+    decisiveTotal?: string;
+    label: string;
+  } | undefined>(undefined);
   const [zoneSettings, setZoneSettings] = useState({ back: 33, front: 66 });
-  const [historyData, setHistoryData] = useState<any[]>([]);
+  const [historyData, setHistoryData] = useState<HistoryChartPoint[]>([]);
   const [alerts, setAlerts] = useState<{
     id: string;
     zone: string;
@@ -58,18 +136,19 @@ export default function StudentBehaviorPage() {
     timestamp: number;
     isFresh: boolean;
   }[]>([]);
-  const [isAlertsCollapsed, setIsAlertsCollapsed] = useState(false);
+  const [isAlertsCollapsed, setIsAlertsCollapsed] = useState(true);
 
 
 
   const [draggingZone, setDraggingZone] = useState<null | 'back' | 'front'>(null);
+  const lastAlertTimes = React.useRef<Record<string, number>>({});
 
   // ROI Selection State
 
   const [isSelectingROI, setIsSelectingROI] = useState(false);
   const [roiStart, setRoiStart] = useState<{ x: number, y: number } | null>(null);
   const [roiCurrent, setRoiCurrent] = useState<{ x: number, y: number } | null>(null);
-  const [activeROI, setActiveROI] = useState({ x1: 0, y1: 0, x2: 1, y2: 1 });
+  const [, setActiveROI] = useState({ x1: 0, y1: 0, x2: 1, y2: 1 });
 
 
   // ... (keep existing functions)
@@ -182,35 +261,52 @@ export default function StudentBehaviorPage() {
 
 
 
-  const handleCardClick = (keys?: { engaged: string, total: string, label: string }) => {
+  const handleCardClick = (keys?: {
+    engaged: string;
+    total: string;
+    context?: string;
+    decisiveTotal?: string;
+    label: string;
+  }) => {
     setModalDataKeys(keys); // If undefined, it uses default global stats
     setShowDetails(true);
   };
 
   React.useEffect(() => {
-    const interval = setInterval(() => {
+    const refreshStats = () => {
       // Fetch Global Stats
       fetch('http://localhost:8000/stats', { cache: 'no-store' })
         .then(res => res.json())
-        .then(data => setStats(data))
+        .then(data => setStats({ ...DEFAULT_STATS, ...data }))
         .catch(err => console.error("Stats fetch error:", err));
 
       // Fetch Group Stats
       fetch('http://localhost:8000/stats/groups', { cache: 'no-store' })
         .then(res => res.json())
-        .then(data => setGroupStats(data))
+        .then(data => setGroupStats({
+          ...DEFAULT_GROUP_STATS,
+          ...data
+        }))
         .catch(err => console.error("Group Stats fetch error:", err));
 
       // Fetch History
       fetch('http://localhost:8000/stats/history', { cache: 'no-store' })
         .then(res => res.json())
-        .then(data => {
-          const formatted = data.slice(-40).map((d: any) => ({
+        .then((data: HistoryApiPoint[]) => {
+          const formatted: HistoryChartPoint[] = data.slice(-40).map((d) => ({
             time: new Date(d.timestamp * 1000).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-            eng: d.total > 0 ? Math.round((d.engaged / d.total) * 100) : 0,
-            front_eng: d.front_total > 0 ? Math.round((d.front_engaged / d.front_total) * 100) : 0,
-            mid_eng: d.mid_total > 0 ? Math.round((d.mid_engaged / d.mid_total) * 100) : 0,
-            back_eng: d.back_total > 0 ? Math.round((d.back_engaged / d.back_total) * 100) : 0,
+            eng: getOnTaskPercent(d.engaged ?? 0, d.total ?? 0, d.context_dependent ?? 0, d.decisive_total),
+            front_eng: getOnTaskPercent(d.front_engaged ?? 0, d.front_total ?? 0, d.front_context ?? 0, d.front_decisive_total),
+            mid_eng: getOnTaskPercent(d.mid_engaged ?? 0, d.mid_total ?? 0, d.mid_context ?? 0, d.mid_decisive_total),
+            back_eng: getOnTaskPercent(d.back_engaged ?? 0, d.back_total ?? 0, d.back_context ?? 0, d.back_decisive_total),
+            context: d.context_dependent ?? 0,
+            decisive_total: getDecisiveTotal(d.total ?? 0, d.context_dependent ?? 0, d.decisive_total),
+            front_context: d.front_context ?? 0,
+            front_decisive_total: getDecisiveTotal(d.front_total ?? 0, d.front_context ?? 0, d.front_decisive_total),
+            mid_context: d.mid_context ?? 0,
+            mid_decisive_total: getDecisiveTotal(d.mid_total ?? 0, d.mid_context ?? 0, d.mid_decisive_total),
+            back_context: d.back_context ?? 0,
+            back_decisive_total: getDecisiveTotal(d.back_total ?? 0, d.back_context ?? 0, d.back_decisive_total),
             front_total: d.front_total,
             mid_total: d.mid_total,
             back_total: d.back_total,
@@ -219,83 +315,80 @@ export default function StudentBehaviorPage() {
           setHistoryData(formatted);
         })
         .catch(err => console.error("History fetch error:", err));
+    };
 
+    refreshStats();
+    const refreshInterval = setInterval(refreshStats, 1000);
 
-    }, 1000);
-
+    return () => clearInterval(refreshInterval);
   }, []);
 
   // Trend detection and alerting logic
   React.useEffect(() => {
     if (historyData.length < 15) return;
 
-    const zones = [
-      { name: 'Front Row', key: 'front_eng', totalKey: 'front_total' },
-      { name: 'Middle Row', key: 'mid_eng', totalKey: 'mid_total' },
-      { name: 'Back Row', key: 'back_eng', totalKey: 'back_total' }
-    ];
+    setAlerts((prevAlerts) => {
+      const zones = [
+        { name: 'Front Row', key: 'front_eng', totalKey: 'front_decisive_total' },
+        { name: 'Middle Row', key: 'mid_eng', totalKey: 'mid_decisive_total' },
+        { name: 'Back Row', key: 'back_eng', totalKey: 'back_decisive_total' }
+      ] as const;
 
-    const newAlertsCandidates: typeof alerts = [];
-    const alertsToRemove: string[] = [];
-    const now = Date.now();
-
-    zones.forEach(zone => {
+      const newAlertsCandidates: typeof prevAlerts = [];
+      const alertsToRemove = new Set<string>();
+      const now = Date.now();
       const recentSamples = historyData.slice(-15);
       const currentSample = recentSamples[recentSamples.length - 1];
-      const currentEng = currentSample[zone.key];
-      const currentTotal = currentSample[zone.totalKey];
 
-      // Recovery Check: If engagement back to >50%, mark alerts for removal
-      if (currentEng > 50) {
-        const activeZoneAlerts = alerts.filter(a => a.zone === zone.name);
-        activeZoneAlerts.forEach(a => alertsToRemove.push(a.id));
-      }
+      zones.forEach((zone) => {
+        const currentEng = currentSample[zone.key];
+        const currentTotal = currentSample[zone.totalKey];
 
-      // Safety: Only alert if students are actually in the zone
-      if (currentTotal <= 0) return;
+        // No manual recovery: alerts will persist for 10 seconds regardless of recovery
 
-      // 1. Sudden Drop Check (last 10 samples)
-      const tenSamplesAgo = recentSamples[recentSamples.length - 10]?.[zone.key];
-      if (tenSamplesAgo !== undefined && (tenSamplesAgo - currentEng) >= 15) {
-        // Trigger "engagement dropping" alert if not already alerted recently
-        const existingDropAlert = alerts.find(a => a.zone === zone.name && a.type === 'drop' && (now - a.timestamp) < 60000);
-        if (!existingDropAlert) {
-          newAlertsCandidates.push({
-            id: `${zone.name}-drop-${now}`,
-            zone: zone.name,
-            message: `Engagement is dropping rapidly in ${zone.name}`,
-            type: 'drop',
-            timestamp: now,
-            isFresh: true
-          });
+        if (currentTotal <= 0) return;
+
+        const tenSamplesAgo = recentSamples[recentSamples.length - 10]?.[zone.key];
+        if (tenSamplesAgo !== undefined && (tenSamplesAgo - currentEng) >= 15) {
+          const lastDrop = lastAlertTimes.current[`${zone.name}-drop`] || 0;
+          if (now - lastDrop > 30000) { // Reduced to 30s
+            lastAlertTimes.current[`${zone.name}-drop`] = now;
+            newAlertsCandidates.push({
+              id: `${zone.name}-drop-${now}`,
+              zone: zone.name,
+              message: `Engagement is dropping rapidly in ${zone.name}`,
+              type: 'drop',
+              timestamp: now,
+              isFresh: true
+            });
+          }
         }
-      }
 
-      // 2. Continuous Low Engagement Check (last 15 samples < 30%)
-      const isContinuouslyLow = recentSamples.every(s => s[zone.key] < 30 && s[zone.key] !== undefined);
-      if (isContinuouslyLow) {
-        const existingLowAlert = alerts.find(a => a.zone === zone.name && a.type === 'low' && (now - a.timestamp) < 300000); // Alert every 5m for continuous low
-        if (!existingLowAlert) {
-          newAlertsCandidates.push({
-            id: `${zone.name}-low-${now}`,
-            zone: zone.name,
-            message: `Sustained low engagement in ${zone.name}`,
-            type: 'low',
-            timestamp: now,
-            isFresh: true
-          });
+        const isContinuouslyLow = recentSamples.every(
+          (sample) => sample[zone.key] < 60 && sample[zone.key] !== undefined
+        );
+        if (isContinuouslyLow) {
+          const lastLow = lastAlertTimes.current[`${zone.name}-low`] || 0;
+          if (now - lastLow > 30000) { // Reduced to 30s
+            lastAlertTimes.current[`${zone.name}-low`] = now;
+            newAlertsCandidates.push({
+              id: `${zone.name}-low-${now}`,
+              zone: zone.name,
+              message: `Sustained low engagement in ${zone.name}`,
+              type: 'low',
+              timestamp: now,
+              isFresh: true
+            });
+          }
         }
+      });
+
+      const nextAlerts = prevAlerts.filter((alert) => !alertsToRemove.has(alert.id));
+      if (newAlertsCandidates.length === 0) {
+        return nextAlerts;
       }
+      return [...newAlertsCandidates, ...nextAlerts].slice(0, 5);
     });
-
-    // Handle removals (recovery)
-    if (alertsToRemove.length > 0) {
-      setAlerts(prev => prev.filter(a => !alertsToRemove.includes(a.id)));
-    }
-
-    if (newAlertsCandidates.length > 0) {
-      setAlerts(prev => [...newAlertsCandidates, ...prev].slice(0, 5));
-    }
   }, [historyData]);
 
   const removeAlert = (id: string) => {
@@ -306,15 +399,40 @@ export default function StudentBehaviorPage() {
     setAlerts([]);
   };
 
+  // Auto-clear alerts after 10 seconds
+  React.useEffect(() => {
+    const cleanupTimer = setInterval(() => {
+      const now = Date.now();
+      setAlerts(prev => prev.filter(alert => (now - alert.timestamp) < 10000));
+    }, 1000);
+    return () => clearInterval(cleanupTimer);
+  }, []);
+
 
 
   // Helper to get keys for zone
   const getZoneKeys = (zoneName: string) => {
-    if (zoneName === "Front Row") return { engaged: "front_engaged", total: "front_total", label: "Front Row Behavior" };
-    if (zoneName === "Middle Row") return { engaged: "mid_engaged", total: "mid_total", label: "Middle Row Behavior" };
-    if (zoneName === "Back Row") return { engaged: "back_engaged", total: "back_total", label: "Back Row Behavior" };
+    if (zoneName === "Front Row") return { engaged: "front_engaged", total: "front_total", context: "front_context", decisiveTotal: "front_decisive_total", label: "Front Row Behavior" };
+    if (zoneName === "Middle Row") return { engaged: "mid_engaged", total: "mid_total", context: "mid_context", decisiveTotal: "mid_decisive_total", label: "Middle Row Behavior" };
+    if (zoneName === "Back Row") return { engaged: "back_engaged", total: "back_total", context: "back_context", decisiveTotal: "back_decisive_total", label: "Back Row Behavior" };
     return undefined;
   };
+
+  const overallOnTaskPercent = getOnTaskPercent(
+    stats.engaged,
+    stats.total,
+    stats.context_dependent,
+    stats.decisive_total
+  );
+  const overallDecisiveTotal = getDecisiveTotal(
+    stats.total,
+    stats.context_dependent,
+    stats.decisive_total
+  );
+  const hasContextCases =
+    stats.context_dependent > 0 ||
+    Object.values(groupStats).some((zone) => zone.context_dependent > 0) ||
+    historyData.some((point) => point.context > 0);
 
   return (
     <div className="flex flex-col h-full bg-gray-900 text-white overflow-hidden">
@@ -337,30 +455,35 @@ export default function StudentBehaviorPage() {
           <div className="h-8 w-px bg-gray-700/50 mx-2 hidden sm:block"></div>
 
           {/* Header Alert Indicator */}
-          {alerts.length > 0 && (
-            <div className="relative flex items-center gap-4">
-              <button
-                onClick={() => setIsAlertsCollapsed(!isAlertsCollapsed)}
-                className={`relative p-2 rounded-xl transition-all ${alerts.some(a => a.type === 'low')
-                  ? 'bg-red-500/10 text-red-500 hover:bg-red-500/20'
-                  : 'bg-amber-500/10 text-amber-500 hover:bg-amber-500/20'
-                  }`}
-              >
-                <Bell size={20} className={isAlertsCollapsed ? 'animate-pulse' : ''} />
+          <div className="relative flex items-center gap-4">
+            <button
+              onClick={() => setIsAlertsCollapsed(!isAlertsCollapsed)}
+              className={`relative p-2 rounded-xl transition-all ${
+                alerts.length > 0 
+                  ? (alerts.some(a => a.type === 'low') ? 'bg-red-500/10 text-red-500 hover:bg-red-500/20' : 'bg-amber-500/10 text-amber-500 hover:bg-amber-500/20')
+                  : 'bg-gray-700/50 text-gray-400 hover:bg-gray-700'
+              }`}
+            >
+              <Bell size={20} className={!isAlertsCollapsed && alerts.length > 0 ? 'animate-pulse' : ''} />
+              {alerts.length > 0 && (
                 <span className="absolute -top-1 -right-1 bg-red-600 text-[10px] font-black w-5 h-5 flex items-center justify-center rounded-full border-2 border-gray-900 shadow-lg text-white">
                   {alerts.length}
                 </span>
-              </button>
+              )}
+            </button>
 
-              {!isAlertsCollapsed && (
-                <div className="absolute top-12 right-0 w-80 z-50 pointer-events-none">
-                  <div className="pointer-events-auto flex flex-col gap-2 p-4 bg-gray-900/95 backdrop-blur-2xl border border-gray-700 rounded-2xl shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Notifications</span>
+            {!isAlertsCollapsed && (
+              <div className="absolute top-12 right-0 w-80 z-50 pointer-events-none">
+                <div className="pointer-events-auto flex flex-col gap-2 p-4 bg-gray-900/95 backdrop-blur-2xl border border-gray-700 rounded-2xl shadow-2xl animate-in fade-in slide-in-from-top-2 duration-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-gray-400">Notifications</span>
+                    {alerts.length > 0 && (
                       <button onClick={clearAllAlerts} className="text-[10px] font-bold text-gray-500 hover:text-red-400">Clear All</button>
-                    </div>
-                    <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
-                      {alerts.map((alert) => (
+                    )}
+                  </div>
+                  <div className="max-h-60 overflow-y-auto space-y-2 pr-1">
+                    {alerts.length > 0 ? (
+                      alerts.map((alert) => (
                         <div
                           key={alert.id}
                           className={`flex items-start gap-3 p-3 rounded-xl border ${alert.type === 'drop'
@@ -379,13 +502,18 @@ export default function StudentBehaviorPage() {
                             <X size={12} />
                           </button>
                         </div>
-                      ))}
-                    </div>
+                      ))
+                    ) : (
+                      <div className="py-8 text-center">
+                        <Bell size={24} className="mx-auto text-gray-600 mb-2 opacity-20" />
+                        <p className="text-xs text-gray-500">No active notifications</p>
+                      </div>
+                    )}
                   </div>
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
 
           <UserProfileMenu />
         </div>
@@ -412,12 +540,17 @@ export default function StudentBehaviorPage() {
                 </div>
                 <h3 className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-4">Overall Engagement</h3>
                 <div className="text-5xl font-black text-white mb-2 leading-none">
-                  {stats.total > 0 ? Math.round((stats.engaged / stats.total) * 100) : 0}<span className="text-2xl text-blue-500">%</span>
+                  {overallOnTaskPercent}<span className="text-2xl text-blue-500">%</span>
                 </div>
                 <div className="flex items-center gap-2 text-emerald-400 font-medium">
                   <TrendingUp size={16} />
-                  <span>{stats.engaged} / {stats.total} On-Task</span>
+                  <span>{stats.engaged} / {overallDecisiveTotal} On-Task (decisive)</span>
                 </div>
+                {hasContextCases && (
+                  <div className="mt-2 text-xs text-amber-400 font-medium">
+                    {stats.context_dependent} context-dependent students excluded from this percentage
+                  </div>
+                )}
                 <div className="mt-6 pt-6 border-t border-gray-700/50">
                   <button
                     onClick={() => handleCardClick(undefined)}
@@ -430,9 +563,17 @@ export default function StudentBehaviorPage() {
 
               <div className="bg-gray-800/50 p-6 rounded-2xl border border-gray-700 backdrop-blur-sm">
                 <h4 className="text-gray-400 text-xs font-bold uppercase tracking-widest mb-4">Live Monitoring</h4>
-                <div className="flex items-center justify-between p-3 bg-gray-900/50 rounded-xl border border-gray-700/50">
-                  <span className="text-sm font-medium text-gray-300">Active Students</span>
-                  <span className="text-xl font-mono font-bold text-white">{stats.active}</span>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between p-3 bg-gray-900/50 rounded-xl border border-gray-700/50">
+                    <span className="text-sm font-medium text-gray-300">Active Students</span>
+                    <span className="text-xl font-mono font-bold text-white">{stats.active}</span>
+                  </div>
+                  {hasContextCases && (
+                    <div className="flex items-center justify-between p-3 bg-amber-500/10 rounded-xl border border-amber-500/20">
+                      <span className="text-sm font-medium text-amber-200">Context-Dependent</span>
+                      <span className="text-xl font-mono font-bold text-amber-300">{stats.context_dependent}</span>
+                    </div>
+                  )}
                 </div>
 
               </div>
@@ -443,7 +584,11 @@ export default function StudentBehaviorPage() {
               <div className="flex items-center justify-between mb-6">
                 <div>
                   <h3 className="text-gray-200 text-sm font-bold uppercase tracking-widest">Engagement Trends</h3>
-                  <p className="text-xs text-gray-400 mt-1">Real-time percentage over last 20 samples</p>
+                  <p className="text-xs text-gray-400 mt-1">
+                    {hasContextCases
+                      ? 'Real-time on-task percentage, excluding context-dependent cases'
+                      : 'Real-time on-task percentage for decisive on-task vs off-task states'}
+                  </p>
                 </div>
                 <div className="flex items-center gap-2 px-3 py-1 bg-emerald-500/10 text-emerald-400 rounded-full text-[10px] font-bold uppercase border border-emerald-500/20">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
@@ -489,9 +634,15 @@ export default function StudentBehaviorPage() {
                                   <span className="text-sm font-mono font-black text-white">{payload[0].value}%</span>
                                 </div>
                                 <div className="flex items-center justify-between gap-8 pt-1 border-t border-gray-800">
-                                  <span className="text-[10px] font-bold text-gray-500 uppercase">Class Size</span>
-                                  <span className="text-[10px] font-mono text-gray-400">{payload[0].payload.total} Students</span>
+                                  <span className="text-[10px] font-bold text-gray-500 uppercase">Decisive</span>
+                                  <span className="text-[10px] font-mono text-gray-400">{payload[0].payload.decisive_total} Students</span>
                                 </div>
+                                {payload[0].payload.context > 0 && (
+                                  <div className="flex items-center justify-between gap-8">
+                                    <span className="text-[10px] font-bold text-amber-400 uppercase">Context</span>
+                                    <span className="text-[10px] font-mono text-amber-300">{payload[0].payload.context} Students</span>
+                                  </div>
+                                )}
                               </div>
                             </div>
                           );
@@ -516,7 +667,7 @@ export default function StudentBehaviorPage() {
               <div className="flex items-center gap-4 mt-4 pt-4 border-t border-gray-700/50">
                 <div className="flex items-center gap-2">
                   <div className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]"></div>
-                  <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Engagement Level (%)</span>
+                  <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">Decisive On-Task (%)</span>
                 </div>
               </div>
 
@@ -531,6 +682,17 @@ export default function StudentBehaviorPage() {
               {Object.entries(groupStats).map(([zoneName, zoneData]) => {
                 const hasAlert = alerts.some(a => a.zone === zoneName);
                 const isLow = alerts.some(a => a.zone === zoneName && a.type === 'low');
+                const decisiveTotal = getDecisiveTotal(
+                  zoneData.total,
+                  zoneData.context_dependent,
+                  zoneData.decisive_total
+                );
+                const zonePercent = getOnTaskPercent(
+                  zoneData.engaged,
+                  zoneData.total,
+                  zoneData.context_dependent,
+                  zoneData.decisive_total
+                );
 
                 return (
                   <div
@@ -553,19 +715,27 @@ export default function StudentBehaviorPage() {
                     </div>
                     <div className="flex items-end justify-between">
                       <div className={`text-2xl font-black leading-none ${hasAlert ? 'text-red-400' : 'text-white'}`}>
-                        {zoneData.total > 0 ? Math.round((zoneData.engaged / zoneData.total) * 100) : 0}%
+                        {zonePercent}%
                       </div>
-                      <div className="text-xs text-gray-500 font-mono">
-                        {zoneData.engaged}/{zoneData.total} Students
+                      <div className="text-right">
+                        <div className="text-xs text-gray-500 font-mono">
+                          {zoneData.engaged}/{decisiveTotal} Decisive
+                        </div>
+                        {zoneData.context_dependent > 0 && (
+                          <div className="text-[10px] text-amber-400 font-medium">
+                            {zoneData.context_dependent} Context
+                          </div>
+                        )}
                       </div>
                     </div>
                     <div className="w-full h-2 bg-gray-900 rounded-full mt-4 overflow-hidden border border-gray-700/50">
                       <div
                         className={`h-full rounded-full transition-all duration-1000 ${hasAlert ? 'bg-red-500' :
-                          (zoneData.total > 0 && (zoneData.engaged / zoneData.total) > 0.7) ? 'bg-emerald-500' :
-                            (zoneData.total > 0 && (zoneData.engaged / zoneData.total) > 0.4) ? 'bg-yellow-500' : 'bg-red-500'
+                          (decisiveTotal === 0 && zoneData.context_dependent > 0) ? 'bg-amber-400' :
+                            (decisiveTotal > 0 && (zoneData.engaged / decisiveTotal) > 0.7) ? 'bg-emerald-500' :
+                              (decisiveTotal > 0 && (zoneData.engaged / decisiveTotal) > 0.4) ? 'bg-yellow-500' : 'bg-red-500'
                           }`}
-                        style={{ width: `${zoneData.total > 0 ? (zoneData.engaged / zoneData.total) * 100 : 0}%` }}
+                        style={{ width: `${decisiveTotal === 0 && zoneData.context_dependent > 0 ? 100 : (decisiveTotal > 0 ? (zoneData.engaged / decisiveTotal) * 100 : 0)}%` }}
                       />
                     </div>
                   </div>
@@ -667,8 +837,8 @@ export default function StudentBehaviorPage() {
                     style={{ top: `${zoneSettings.back}%` }}
                     onMouseDown={(e) => { e.stopPropagation(); setDraggingZone('back'); }}
                   >
-                    <div className="absolute inset-0 bg-red-500/40 group-hover/back:bg-red-400 shadow-[0_0_10px_rgba(239,68,68,0.3)] transition-colors"></div>
-                    <div className="absolute right-4 -top-3 bg-red-600 text-[8px] font-black px-2 py-0.5 rounded-full text-white uppercase tracking-tighter shadow-lg">
+                    <div className="absolute inset-0 bg-pink-500/40 group-hover/back:bg-pink-400 shadow-[0_0_10px_rgba(236,72,153,0.3)] transition-colors"></div>
+                    <div className="absolute right-4 -top-3 bg-pink-600 text-[8px] font-black px-2 py-0.5 rounded-full text-white uppercase tracking-tighter shadow-lg">
                       Back Divider ({zoneSettings.back}%)
                     </div>
                   </div>
@@ -679,8 +849,8 @@ export default function StudentBehaviorPage() {
                     style={{ top: `${zoneSettings.front}%` }}
                     onMouseDown={(e) => { e.stopPropagation(); setDraggingZone('front'); }}
                   >
-                    <div className="absolute inset-0 bg-blue-500/40 group-hover/front:bg-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.3)] transition-colors"></div>
-                    <div className="absolute right-4 -top-3 bg-blue-600 text-[8px] font-black px-2 py-0.5 rounded-full text-white uppercase tracking-tighter shadow-lg">
+                    <div className="absolute inset-0 bg-cyan-500/40 group-hover/front:bg-cyan-400 shadow-[0_0_10px_rgba(6,182,212,0.3)] transition-colors"></div>
+                    <div className="absolute right-4 -top-3 bg-cyan-600 text-[8px] font-black px-2 py-0.5 rounded-full text-white uppercase tracking-tighter shadow-lg">
                       Front Divider ({zoneSettings.front}%)
                     </div>
                   </div>

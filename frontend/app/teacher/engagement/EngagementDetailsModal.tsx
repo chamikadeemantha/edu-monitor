@@ -1,9 +1,7 @@
 "use client";
 import React, { useEffect, useState } from 'react';
-import { X, Clock, Users } from 'lucide-react';
+import { X, Clock } from 'lucide-react';
 import {
-    LineChart,
-    Line,
     XAxis,
     YAxis,
     CartesianGrid,
@@ -19,6 +17,8 @@ interface EngagementDetailsModalProps {
     dataKeys?: { // Optional keys to plot specific group data
         engaged: string;
         total: string;
+        context?: string;
+        decisiveTotal?: string;
         label: string;
     };
 }
@@ -59,6 +59,8 @@ export default function EngagementDetailsModal({ isOpen, onClose, dataKeys }: En
 
     const keyEngaged = dataKeys?.engaged || 'engaged';
     const keyTotal = dataKeys?.total || 'total';
+    const keyContext = dataKeys?.context || 'context_dependent';
+    const keyDecisiveTotal = dataKeys?.decisiveTotal || 'decisive_total';
     const chartLabel = dataKeys?.label || 'Total Behavior';
 
     // Process data for graph
@@ -69,9 +71,14 @@ export default function EngagementDetailsModal({ isOpen, onClose, dataKeys }: En
         raised: point.hand_raised || 0,
         sleeping: point.sleeping || 0,
         away: point.away || 0,
-        percentage: point[keyTotal] > 0 ? Math.round((point[keyEngaged] / point[keyTotal]) * 100) : 0,
+        context: point[keyContext] || 0,
+        decisiveTotal: point[keyDecisiveTotal] ?? Math.max((point[keyTotal] || 0) - (point[keyContext] || 0), 0),
+        percentage: (point[keyDecisiveTotal] ?? Math.max((point[keyTotal] || 0) - (point[keyContext] || 0), 0)) > 0
+            ? Math.round((point[keyEngaged] / (point[keyDecisiveTotal] ?? Math.max((point[keyTotal] || 0) - (point[keyContext] || 0), 0))) * 100)
+            : 0,
         total: point[keyTotal]
     }));
+    const hasContextCases = chartData.some(point => point.context > 0);
 
     // ... (keep header/stats)
 
@@ -99,7 +106,7 @@ export default function EngagementDetailsModal({ isOpen, onClose, dataKeys }: En
                 {/* Content */}
                 <div className="p-6 space-y-6">
                     {/* Stats Summary */}
-                    <div className="grid grid-cols-3 gap-4">
+                    <div className={`grid gap-4 ${hasContextCases ? 'grid-cols-2 lg:grid-cols-4' : 'grid-cols-3'}`}>
                         <div className="bg-gray-700/30 p-4 rounded-xl border border-gray-600/50">
                             <div className="text-gray-400 text-sm mb-1">Current On-Task</div>
                             <div className="text-2xl font-bold text-white">
@@ -112,6 +119,14 @@ export default function EngagementDetailsModal({ isOpen, onClose, dataKeys }: En
                                 {chartData.length > 0 ? Math.max(...chartData.map(d => d.percentage)) : 0}%
                             </div>
                         </div>
+                        {hasContextCases && (
+                            <div className="bg-amber-500/10 p-4 rounded-xl border border-amber-500/20">
+                                <div className="text-amber-200 text-sm mb-1">Context-Dependent</div>
+                                <div className="text-2xl font-bold text-amber-300">
+                                    {chartData.length > 0 ? chartData[chartData.length - 1].context : 0}
+                                </div>
+                            </div>
+                        )}
                         <div className="bg-gray-700/30 p-4 rounded-xl border border-gray-600/50">
                             <div className="text-gray-400 text-sm mb-1">Active Students</div>
                             <div className="text-2xl font-bold text-blue-400">{chartData.length > 0 ? chartData[chartData.length - 1].total : 0}</div>
@@ -152,9 +167,15 @@ export default function EngagementDetailsModal({ isOpen, onClose, dataKeys }: En
                                                             </div>
                                                         </div>
                                                         <div className="mt-3 pt-3 border-t border-white/5 flex justify-between items-center">
-                                                            <span className="text-[10px] font-bold text-gray-500 uppercase">Class Size</span>
-                                                            <span className="text-xs font-mono text-blue-400 font-bold">{payload[0].payload.total} students</span>
+                                                            <span className="text-[10px] font-bold text-gray-500 uppercase">Decisive</span>
+                                                            <span className="text-xs font-mono text-blue-400 font-bold">{payload[0].payload.decisiveTotal} students</span>
                                                         </div>
+                                                        {payload[0].payload.context > 0 && (
+                                                            <div className="mt-2 flex justify-between items-center">
+                                                                <span className="text-[10px] font-bold text-amber-400 uppercase">Context</span>
+                                                                <span className="text-xs font-mono text-amber-300 font-bold">{payload[0].payload.context} students</span>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 );
                                             }
@@ -177,7 +198,7 @@ export default function EngagementDetailsModal({ isOpen, onClose, dataKeys }: En
                     <div className="flex items-center gap-4 text-[10px] font-black uppercase text-gray-400 justify-center">
                         <div className="flex items-center gap-2">
                             <div className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.5)]"></div>
-                            Engagement Level (%)
+                            Decisive On-Task (%)
                         </div>
                     </div>
 
